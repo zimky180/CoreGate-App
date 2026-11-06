@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  主题选择：直接用系统 Material 深色基础，不引入 appcompat / material 库。
+  理由：整个界面全是自绘 View，唯一需要主题的地方就是窗口背景和状态栏。
+  用 android:Theme.Material.NoActionBar 能保持零依赖，APK 体积最小。
+
+  windowBackground 设成和内容区一致的深底，避免冷启动时白屏闪一下。
+-->
+<resources>
+
+    <style name="Theme.CoreGate" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/cg_bg</item>
+        <item name="android:colorBackground">@color/cg_bg</item>
+        <item name="android:statusBarColor">@color/cg_bg</item>
+        <item name="android:navigationBarColor">@color/cg_bar</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+
+</resources>

@@ -1,0 +1,72 @@
+plugins {
+    alias(libs.plugins.android.application)
+    // AGP 9 内建 Kotlin 支持，不再 apply org.jetbrains.kotlin.android（与新 DSL 不兼容）
+    alias(libs.plugins.kotlin.compose)
+}
+
+android {
+    namespace 'com.zimky.coregateUS'
+    compileSdk 37
+
+    defaultConfig {
+        applicationId "com.zimky.coregateUS"
+        // minSdk 33：miuix-blur-android:0.9.4 的 AAR 清单声明 minSdk 33。
+        // 本项目面向骁龙 8 Gen 5 一代（Android 16/17、内核 6.6~6.12），
+        // 且运行依赖 KernelSU，实际设备全部在 API 33 以上，故直接对齐到 33，
+        // 不用 tools:overrideLibrary 绕过检查（绕过会失去构建期保护）。
+        minSdk 33
+        targetSdk 37
+        versionCode 230
+        versionName "2.3.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+        compose true
+    }
+}
+
+// AGP 9 新 DSL 下 kotlinOptions 已移除，改用 Kotlin 扩展的 compilerOptions
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+dependencies {
+    implementation libs.androidx.core.ktx
+    implementation libs.androidx.activity.compose
+    implementation libs.androidx.lifecycle.runtime.compose
+    implementation libs.androidx.lifecycle.viewmodel.compose
+    implementation libs.kotlinx.coroutines.android
+
+    implementation platform(libs.androidx.compose.bom)
+    implementation libs.androidx.compose.ui
+    implementation libs.androidx.compose.ui.graphics
+    implementation libs.androidx.compose.foundation
+    implementation libs.androidx.compose.material3
+    implementation libs.androidx.compose.material.icons.extended
+    debugImplementation libs.androidx.compose.ui.tooling
+    implementation libs.androidx.compose.ui.tooling.preview
+
+    implementation libs.miuix.ui
+    implementation libs.miuix.icons
+    implementation libs.miuix.nav
+    implementation libs.miuix.preference
+    implementation libs.miuix.blur
+
+    implementation libs.material.kolor
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  色值与 Java 侧的 Ui 类保持一致。这里只放主题/窗口级别用得到的颜色，
+  控件内部全部走 Ui.ACC / Ui.OK 这些常量，不从这里读。
+-->
+<resources>
+    <color name="cg_bg">#FF080B12</color>
+    <color name="cg_bar">#E60E1219</color>
+    <color name="cg_acc">#FF4F8CFF</color>
+    <color name="cg_icon_bg">#FF0E1420</color>
+</resources>
