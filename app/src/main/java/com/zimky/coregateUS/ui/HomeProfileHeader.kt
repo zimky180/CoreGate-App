@@ -140,7 +140,7 @@ fun BoxScope.HomeAvatarOverlay(scroll: ScrollState, avatarBounds: Rect?, rootOri
             shape = CircleShape
         }
         .background(cs.surfaceContainerHigh, CircleShape)
-        .border(1.dp, cs.outlineVariant.copy(alpha = 0.5f), CircleShape)
+        .border(1.dp, cs.outline.copy(alpha = 0.5f), CircleShape)
         .clickable(enabled = !saving && scroll.value == 0, role = Role.Button,
             onClickLabel = "从相册选择头像") {
             picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
