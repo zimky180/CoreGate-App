@@ -47,6 +47,7 @@ import com.zimky.coregateUS.core.LogReader
 import com.zimky.coregateUS.core.Paths
 import com.zimky.coregateUS.core.RootShell
 import com.zimky.coregateUS.core.SysProbe
+import com.zimky.coregateUS.ui.ConfirmDialog
 import com.zimky.coregateUS.ui.AnimatedGradientText
 import com.zimky.coregateUS.ui.PageHeading
 import com.zimky.coregateUS.ui.SectionHeading
@@ -151,11 +152,42 @@ fun SettingsPage(
     var logText by remember { mutableStateOf("") }
     var logFrom by remember { mutableStateOf("") }
     var logBusy by remember { mutableStateOf(false) }
+    var logClearing by remember { mutableStateOf(false) }
+    var logLoaded by remember { mutableStateOf(false) }
+    var logGeneration by remember { mutableStateOf(0) }
+    var confirmClearLogs by remember { mutableStateOf(false) }
 
     // ── 诊断刷新计数，点一次变一次 ──
     var diagTick by remember { mutableStateOf(0) }
     var logsExpanded by rememberSaveable { mutableStateOf(false) }
     var diagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
+
+    if (confirmClearLogs) {
+        ConfirmDialog(
+            title = "清空日志？",
+            message = "清空模块日志、当前页面保留的日志和诊断命令历史。清空后无法恢复，模块之后仍会记录新的运行日志。",
+            confirmText = "确认清空",
+            onCancel = { confirmClearLogs = false },
+            onConfirm = {
+                confirmClearLogs = false
+                logClearing = true
+                ++logGeneration
+                logBusy = false
+                LogReader.clear(sh) { code, _, _ ->
+                    logClearing = false
+                    if (code == 0) {
+                        logText = ""
+                        logFrom = ""
+                        logLoaded = true
+                        diagTick++
+                        Toaster.show("清空成功")
+                    } else {
+                        Toaster.show("日志未全部清空，请检查 Root 授权或文件权限", true)
+                    }
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -393,10 +425,13 @@ fun SettingsPage(
                             TextButton(
                                 text = if (logBusy) "读取中…" else "读取日志",
                                 onClick = {
-                                    if (logBusy) return@TextButton
+                                    if (logBusy || logClearing) return@TextButton
                                     logBusy = true
+                                    val generation = ++logGeneration
                                     LogReader.tail(sh, 160) { text, from, found ->
+                                        if (generation != logGeneration) return@tail
                                         logBusy = false
+                                        logLoaded = true
                                         if (!found) {
                                             logText = ""
                                             logFrom = ""
@@ -410,16 +445,9 @@ fun SettingsPage(
                                 colors = ButtonDefaults.textButtonColorsPrimary()
                             )
                             TextButton(
-                                text = "清空日志",
+                                text = if (logClearing) "清空中…" else "清空日志",
                                 onClick = {
-                                    LogReader.clear(sh) { code, _, _ ->
-                                        if (code == 0) {
-                                            logText = ""
-                                            Toaster.show("日志已清空")
-                                        } else {
-                                            Toaster.show("清空失败，退出码 $code", true)
-                                        }
-                                    }
+                                    if (!logClearing) confirmClearLogs = true
                                 },
                                 colors = ButtonDefaults.textButtonColorsPrimary()
                             )
@@ -440,7 +468,7 @@ fun SettingsPage(
                                 .padding(10.dp)
                         ) {
                             if (logText.isEmpty()) {
-                                HintText("还没读取日志。点上方「读取日志」拉取最近 160 行。")
+                                HintText(if (logLoaded) "暂无日志" else "还没读取日志。点上方「读取日志」拉取最近 160 行。")
                             } else {
                                 SelectionContainer {
                                     Column(
