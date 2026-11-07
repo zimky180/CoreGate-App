@@ -8,15 +8,23 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import com.zimky.coregateUS.core.CustomAvatar
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.Image
+import android.graphics.BitmapShader
+import android.graphics.LinearGradient
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Shader
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import kotlin.math.min
+import kotlin.math.max
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import com.zimky.coregateUS.core.QqAvatar
 import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,7 +50,7 @@ import java.util.Calendar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** The empty slot stays in the heading; the avatar itself is drawn outside the scroll clip. */
+/** The centered slot reserves space; the avatar is drawn outside the scroll clip. */
 @Composable
 fun HomeProfileHeader(onAvatarBounds: (Rect) -> Unit) {
     val cs = MiuixTheme.colorScheme
@@ -63,11 +71,16 @@ fun HomeProfileHeader(onAvatarBounds: (Rect) -> Unit) {
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Reserve a separate centered row; the overlay uses the actual cutout x.
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Spacer(Modifier.size(44.dp).onGloballyPositioned {
+                onAvatarBounds(Rect(it.positionInWindow(), androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat())))
+            })
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("核心门控", modifier = Modifier.weight(1f), color = cs.onSurface,
                 fontSize = 30.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.size(44.dp).onGloballyPositioned { onAvatarBounds(Rect(it.positionInWindow(), androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat()))) })
             Text(greeting, color = cs.onSurface, fontSize = 14.sp,
                 fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -115,40 +128,76 @@ fun BoxScope.HomeAvatarOverlay(scroll: ScrollState, avatarBounds: Rect?, rootOri
     val cs = MiuixTheme.colorScheme
     val avatarSize = with(density) { 44.dp.toPx() }
     val statusHeight = WindowInsets.statusBars.getTop(density).toFloat()
-    Box(Modifier.size(44.dp)
-        .graphicsLayer {
-            // bounds follows the scrolled slot. Add its displacement back to recover the origin.
-            val startX = bounds.center.x - rootOrigin.x
-            val startY = bounds.center.y - rootOrigin.y + scroll.value
-            val cutout = ViewCompat.getRootWindowInsets(view)?.displayCutout?.boundingRects
-                ?.filter { it.top <= statusHeight && it.width() < view.width / 2 }
-                ?.minByOrNull { kotlin.math.abs(it.centerX() - view.width / 2) }
-            val targetX = cutout?.exactCenterX()?.minus(rootOrigin.x)
-                ?: (view.width / 2f - rootOrigin.x)
-            val targetY = cutout?.exactCenterY()?.minus(rootOrigin.y)
-                ?: (statusHeight / 2f - rootOrigin.y)
-            val distance = (startY - targetY).coerceAtLeast(with(density) { 72.dp.toPx() })
-            val progress = (scroll.value / distance).coerceIn(0f, 1f)
-            val eased = progress * progress * (3f - 2f * progress)
-            translationX = startX + (targetX - startX) * eased - avatarSize / 2f
-            translationY = startY + (targetY - startY) * eased - avatarSize / 2f
-            // Compress horizontally first, then disappear inside the cutout at the end.
-            scaleX = (1f - eased * 0.98f).coerceAtLeast(0.02f)
-            scaleY = (1f - eased * 0.88f).coerceAtLeast(0.02f)
-            alpha = if (progress < 0.78f) 1f else ((1f - progress) / 0.22f).coerceIn(0f, 1f)
-            clip = true
-            shape = CircleShape
-        }
-        .background(cs.surfaceContainerHigh, CircleShape)
-        .border(1.dp, cs.outline.copy(alpha = 0.5f), CircleShape)
-        .clickable(enabled = !saving && scroll.value == 0, role = Role.Button,
-            onClickLabel = "从相册选择头像") {
-            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-        }
-        .semantics { contentDescription = "头像，点击从相册选择" }) {
-        avatar?.let { image ->
-            Image(bitmap = image, contentDescription = null,
-                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+    val connector = remember { TelegramMetaball() }
+    val silhouette = remember { Path() }
+    val circle = remember { Path() }
+    val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG) }
+    val matrix = remember { Matrix() }
+    val bitmap = remember(avatar) { avatar?.asAndroidBitmap() }
+    val shader = remember(bitmap) { bitmap?.let { BitmapShader(it, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP) } }
+    val cutout = ViewCompat.getRootWindowInsets(view)?.displayCutout?.boundingRects
+        ?.filter { it.top <= statusHeight && it.width() < view.width / 2 }
+        ?.minByOrNull { kotlin.math.abs(it.centerX() - view.width / 2) }
+    val targetX = cutout?.exactCenterX()?.minus(rootOrigin.x) ?: (view.width / 2f - rootOrigin.x)
+    val targetY = cutout?.exactCenterY()?.minus(rootOrigin.y) ?: (statusHeight / 2f - rootOrigin.y)
+    val notchRadius = cutout?.let { min(it.width(), it.height()) / 2f }
+        ?: with(density) { 7.dp.toPx() }
+    val startY = bounds.center.y - rootOrigin.y + scroll.value
+    val distance = (startY - targetY).coerceAtLeast(avatarSize)
+    // Read scrolling during drawing, avoiding composition/layout work on every frame.
+    Canvas(Modifier.fillMaxSize()) {
+        val progress = (scroll.value / distance).coerceIn(0f, 1f)
+        if (progress >= 1f) return@Canvas
+        val eased = progress * progress * (3f - 2f * progress)
+        val center = Offset(targetX, startY - distance * progress)
+        val radius = avatarSize / 2f + (notchRadius * 0.88f - avatarSize / 2f) * eased
+        val anchor = Offset(targetX, targetY)
+        val separation = (center - anchor).getDistance()
+        val reach = notchRadius + radius * 2.25f
+        // Narrow continuously at the disconnect distance instead of popping a bridge.
+        val contact = ((reach - separation) / radius.coerceAtLeast(1f)).coerceIn(0f, 1f)
+        val stickiness = contact * contact * (3f - 2f * contact) * 0.5f
+        drawIntoCanvas { composeCanvas ->
+            val canvas = composeCanvas.nativeCanvas
+            silhouette.rewind()
+            silhouette.addCircle(center.x, center.y, radius, Path.Direction.CW)
+            if (stickiness > 0f && connector.update(anchor, center, notchRadius, radius, stickiness)) {
+                silhouette.op(connector.path, Path.Op.UNION)
+            }
+            if (stickiness > 0f) {
+                circle.rewind()
+                circle.addCircle(anchor.x, anchor.y, notchRadius, Path.Direction.CW)
+                silhouette.op(circle, Path.Op.UNION)
+            }
+            paint.shader = null
+            paint.color = cs.surfaceContainerHigh.toArgb()
+            canvas.drawPath(silhouette, paint)
+            if (bitmap != null && shader != null) {
+                val scale = radius * 2f / min(bitmap.width, bitmap.height)
+                matrix.reset()
+                matrix.setScale(scale, scale)
+                matrix.postTranslate(center.x - bitmap.width * scale / 2f, center.y - bitmap.height * scale / 2f)
+                shader.setLocalMatrix(matrix)
+                paint.shader = shader
+                paint.color = android.graphics.Color.WHITE
+                canvas.drawPath(silhouette, paint)
+            }
+            // Blend the stretched photo into the physical black camera opening.
+            if (stickiness > 0f) {
+                paint.shader = LinearGradient(0f, targetY + notchRadius * 0.5f,
+                    0f, max(targetY + notchRadius + 1f, center.y + radius * 0.35f),
+                    android.graphics.Color.BLACK, android.graphics.Color.TRANSPARENT, Shader.TileMode.CLAMP)
+                canvas.drawPath(silhouette, paint)
+            }
+            paint.shader = null
         }
     }
+    // Only this small slot handles taps; the drawing layer leaves page scrolling alone.
+    Box(Modifier.size(44.dp).graphicsLayer {
+        translationX = targetX - avatarSize / 2f
+        translationY = startY - avatarSize / 2f
+    }.clickable(enabled = !saving && scroll.value == 0, role = Role.Button,
+        onClickLabel = "从相册选择头像") {
+        picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }.semantics { contentDescription = "头像，点击从相册选择" })
 }

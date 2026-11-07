@@ -35,4 +35,4 @@ JDK 17、Gradle 9.3.1、Android SDK 37，执行 `gradle assembleDebug assembleRe
 
 ## 第三方说明
 
-界面使用 Compose、Miuix 与 Material Kolor。液态效果文件保留 AndroidLiquidGlass / compose-miuix-ui 的上游来源注释；相应第三方代码遵循其各自许可证。自有代码使用 MIT 许可证，详见 LICENSE 与 THIRD_PARTY_NOTICES.md。
+界面使用 Compose、Miuix 与 Material Kolor。液态效果文件保留 AndroidLiquidGlass / compose-miuix-ui 的上游来源注释；相应第三方代码遵循其各自许可证。自有代码使用 MIT 许可证；首页头像的 Telegram 移植代码使用 GPL v2，包含该代码的组合 APK 分发需符合 GPL 相应要求，不能仅按 MIT 分发。详见 LICENSE、LICENSES/Telegram-GPL-2.0.txt 与 THIRD_PARTY_NOTICES.md。
