@@ -25,9 +25,9 @@ internal data class AuthorProfile(
 internal val contributorProfiles = listOf(
     AuthorProfile("owner", "zimky", "项目创始人 · 独立开发与维护\n从零构建 CoreGate，负责整体架构、模块逻辑与全部 UI 实现，持续承担版本迭代、问题修复与项目维护。",
         qq = "1805920232", avatarRes = R.drawable.contributor_owner),
-    AuthorProfile("friend-1", "朋友一", "社区管理 · 需求与反馈\n汇集用户需求，整理问题与 Bug 反馈，协助开发者跟进处理，连接用户与项目。",
+    AuthorProfile("friend-1", "寒玉", "社区管理 · 需求与反馈\n汇集用户需求，整理问题与 Bug 反馈，协助开发者跟进处理，连接用户与项目。",
         qq = "490601192", avatarRes = R.drawable.contributor_feedback),
-    AuthorProfile("friend-2", "朋友二", "社区管理 · 交流与互动\n组织日常交流、带动群内互动，让用户有一个轻松活跃的交流空间。",
+    AuthorProfile("friend-2", "热情", "社区管理 · 交流与互动\n组织日常交流、带动群内互动，让用户有一个轻松活跃的交流空间。",
         qq = "591570259", avatarRes = R.drawable.contributor_community)
 )
 

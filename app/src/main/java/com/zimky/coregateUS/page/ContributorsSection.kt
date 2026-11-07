@@ -1,5 +1,10 @@
 package com.zimky.coregateUS.page
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -48,12 +53,24 @@ fun ContributorsSection() {
                         if (qq == null) {
                             Toaster.show("这位贡献者的 QQ 号尚未填写。")
                         } else {
-                            val url = "https://wpa.qq.com/msgrd?v=3&uin=$qq&site=qq&menu=yes"
-                            if (!openInBrowser(context, url)) {
-                                Toaster.show("无法打开浏览器。QQ 号码：$qq", true)
+                            val uri = Uri.Builder().scheme("mqqwpa").authority("im").path("chat")
+                                .appendQueryParameter("chat_type", "wpa")
+                                .appendQueryParameter("uin", qq)
+                                .appendQueryParameter("version", "1").build()
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage("com.tencent.mobileqq"))
+                            }.onFailure {
+                                Toaster.show("无法打开 QQ，请确认已安装；可复制号码后搜索添加。", true)
                             }
                         }
                     }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary())
+                    if (qq != null) {
+                        TextButton("复制 QQ 号", onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("QQ", qq))
+                            Toaster.show("QQ 号已复制，可到 QQ 搜索添加。")
+                        }, modifier = Modifier.fillMaxWidth())
+                    }
                     TextButton("关闭", onClick = { selectedId = null }, modifier = Modifier.fillMaxWidth())
                 }
             }

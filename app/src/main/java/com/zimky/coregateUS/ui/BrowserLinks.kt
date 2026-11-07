@@ -1,14 +1,32 @@
 package com.zimky.coregateUS.ui
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 
-/** Resolve a browser rather than an app claiming the destination URL. */
+/** Offer only activities registered to handle general web links. */
 internal fun openInBrowser(context: Context, url: String): Boolean = runCatching {
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-        selector = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_BROWSER)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val uri = Uri.parse(url)
+    require(uri.scheme == "https" || uri.scheme == "http")
+    val probe = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com/"))
+        .addCategory(Intent.CATEGORY_BROWSABLE)
+    val browsers = context.packageManager.queryIntentActivities(
+        probe, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+    ).filter { it.handleAllWebDataURI && it.activityInfo.exported }
+        .distinctBy { it.activityInfo.packageName }
+    if (browsers.isEmpty()) return false
+    val targets = browsers.map { browser ->
+        Intent(Intent.ACTION_VIEW, uri).apply {
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            component = ComponentName(browser.activityInfo.packageName, browser.activityInfo.name)
+        }
     }
-    context.startActivity(intent)
+    val launch = if (targets.size == 1) targets.first() else {
+        Intent.createChooser(targets.first(), "选择浏览器").apply {
+            putExtra(Intent.EXTRA_INITIAL_INTENTS, targets.drop(1).toTypedArray())
+        }
+    }
+    context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }.isSuccess

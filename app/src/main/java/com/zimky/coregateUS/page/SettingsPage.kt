@@ -130,7 +130,7 @@ fun SettingsPage(
     // 在 @Composable 上下文里取一次，供 NavRow 的普通 onClick lambda 捕获使用
     val ctx = LocalContext.current
     val musicPrefs = remember(ctx) { ctx.getSharedPreferences("home_music", 0) }
-    var musicAutoplay by remember { mutableStateOf(musicPrefs.getBoolean("autoplay_on_start", false)) }
+    var musicAutoplay by remember { mutableStateOf(musicPrefs.getBoolean("autoplay_on_start", true)) }
     val s = snapshot
     val daemonAlive = s?.daemonAlive == true
     // ── 名单编辑缓冲：父级刷新回来时同步，用户改过则不覆盖 ──

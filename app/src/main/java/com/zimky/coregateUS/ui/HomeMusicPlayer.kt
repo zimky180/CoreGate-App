@@ -292,7 +292,7 @@ fun BoxScope.HomeMusicPlayer() {
     })
     SideEffect { stream.onCompleted = { latestFinish() } }
     LaunchedEffect(Unit) {
-        if (prefs.getBoolean("autoplay_on_start", false)) {
+        if (prefs.getBoolean("autoplay_on_start", true)) {
             tracks.randomOrNull()?.let {
                 currentId = it.id
                 persist(tracks, it.id)

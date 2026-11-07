@@ -23,6 +23,12 @@
 
     <!-- 只对冻结表内的包申请可见性，用于读取应用名与图标。 -->
     <queries>
+        <!-- Browser discovery for contributor web links. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
         <package android:name="com.oplus.logkit" />
         <package android:name="com.oplus.onetrace" />
         <package android:name="com.android.traceur" />

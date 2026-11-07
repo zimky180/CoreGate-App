@@ -72,7 +72,7 @@ fun ApkUpdateCard() {
             Box(Modifier.size(40.dp).clickable(enabled = !busy, role = Role.Button,
                 onClickLabel = "检查 APK 更新", onClick = { checkUpdates() }),
                 contentAlignment = Alignment.Center) {
-                UpdateCheckSpinner(busy)
+                UpdateCheckSpinner(busy, result != null && result !is ApkUpdates.Result.Failed)
             }
         }
     }
@@ -101,7 +101,7 @@ fun ApkUpdateCard() {
     }
 }
 @Composable
-private fun UpdateCheckSpinner(busy: Boolean) {
+private fun UpdateCheckSpinner(busy: Boolean, succeeded: Boolean) {
     val rotation = if (busy) {
         val transition = rememberInfiniteTransition(label = "updateCheck")
         val angle by transition.animateFloat(
@@ -113,8 +113,23 @@ private fun UpdateCheckSpinner(busy: Boolean) {
     } else 0f
     val color = MiuixTheme.colorScheme.primary
     Canvas(Modifier.size(22.dp).graphicsLayer { rotationZ = rotation }
-        .semantics { contentDescription = if (busy) "正在检查更新" else "检查更新" }) {
-        drawArc(color, startAngle = -65f, sweepAngle = 285f, useCenter = false,
-            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+        .semantics {
+            contentDescription = when {
+                busy -> "正在检查更新"
+                succeeded -> "更新检查成功"
+                else -> "检查更新"
+            }
+        }) {
+        if (!busy && succeeded) {
+            val path = androidx.compose.ui.graphics.Path().apply {
+                moveTo(size.width * 0.18f, size.height * 0.52f)
+                lineTo(size.width * 0.40f, size.height * 0.74f)
+                lineTo(size.width * 0.82f, size.height * 0.26f)
+            }
+            drawPath(path, color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+        } else {
+            drawArc(color, startAngle = -65f, sweepAngle = 285f, useCenter = false,
+                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+        }
     }
 }
