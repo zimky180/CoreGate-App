@@ -43,12 +43,6 @@ import com.zimky.coregateUS.core.SysProbe
 import com.zimky.coregateUS.ui.AnimatedGradientText
 import androidx.compose.runtime.LaunchedEffect
 import com.zimky.coregateUS.ui.HomeProfileHeader
-import com.zimky.coregateUS.ui.HomeAvatarOverlay
-import com.zimky.coregateUS.ui.HomeMusicPlayer
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
 import com.zimky.coregateUS.ui.SectionHeading
 import com.zimky.coregateUS.ui.SummaryMetric
 import com.zimky.coregateUS.ui.NavRow
@@ -96,8 +90,7 @@ fun LockPage(
     onRefresh: () -> Unit,
     save: (CoreConfig, String?, ((Boolean, String) -> Unit)?) -> Unit,
     frozenCount: Int? = null,
-    onOpenFreeze: () -> Unit = {},
-    active: Boolean = true
+    onOpenFreeze: () -> Unit = {}
 ) {
     val cs = MiuixTheme.colorScheme
     val s = snapshot
@@ -124,11 +117,7 @@ fun LockPage(
     // 拆成 Box 之后，Column 只负责滚动内容，弹窗作为兄弟层叠在上面，
     // 用 fillMaxSize 覆盖整屏、Alignment.Center 居中，与滚动位置彻底无关。
     val homeScroll = rememberScrollState()
-    var avatarBounds by remember { mutableStateOf<Rect?>(null) }
-    var rootOrigin by remember { mutableStateOf(Offset.Zero) }
-    Box(modifier = Modifier.fillMaxSize().onGloballyPositioned {
-        rootOrigin = it.positionInWindow()
-    }) {
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             // 一级页必须自己铺满整屏：
@@ -144,7 +133,7 @@ fun LockPage(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
 
-        HomeProfileHeader(onAvatarBounds = { avatarBounds = it })
+        HomeProfileHeader()
 
         val moduleMismatch = s?.svcState == true && s.moduleVersionCode != null &&
             (s.moduleVersionCode != com.zimky.coregateUS.BuildConfig.VERSION_CODE ||
@@ -365,8 +354,6 @@ fun LockPage(
     // ── 核心封锁/解封二次确认（整屏浮层，居中弹出） ────────────────
     // 与滚动 Column 同级、排在它后面，因此天然覆盖在内容之上，
     // 且不参与 verticalScroll 的测量，滚动到哪儿都居中。
-    HomeAvatarOverlay(homeScroll, avatarBounds, rootOrigin)
-    HomeMusicPlayer(active)
 
     pendingCore?.let { core ->
         CoreConfirmDialog(

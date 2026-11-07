@@ -76,6 +76,7 @@ import com.zimky.coregateUS.page.FreezePage
 import com.zimky.coregateUS.page.LockPage
 import com.zimky.coregateUS.page.PolicyPage
 import com.zimky.coregateUS.page.SettingsPage
+import com.zimky.coregateUS.ui.HomeMusicPlayer
 import com.zimky.coregateUS.ui.StartupIntro
 import com.zimky.coregateUS.ui.ToastHost
 import com.zimky.coregateUS.ui.component.RootGate
@@ -475,8 +476,7 @@ private fun AppRoot() {
                         onRefresh = { refresh(true) },
                         save = ::save,
                         frozenCount = frozenCount,
-                        onOpenFreeze = { subPage = SubPage.FREEZE },
-                        active = currentTab == 0 && subPage == SubPage.NONE
+                        onOpenFreeze = { subPage = SubPage.FREEZE }
                     )
                 }
                 PageSlot(visible = currentTab == 1) {
@@ -549,6 +549,8 @@ private fun AppRoot() {
                     }
                 }
             }
+
+            HomeMusicPlayer()
 
             // 顶部仍显示系统状态栏；界面在其背后滚动，薄雾保留内容层次。
             Box(Modifier.align(Alignment.TopCenter).fillMaxWidth()

@@ -2,7 +2,7 @@ package com.zimky.coregateUS.ui
 
 import java.time.LocalDate
 
-/** Offline collection; a stable choice for each local calendar date. */
+/** One hundred offline quotes; tapping advances without repeating until a full cycle. */
 internal object DailyQuote {
     private val lines = listOf(
         "一万年太久，只争朝夕。",
@@ -64,7 +64,49 @@ internal object DailyQuote {
         "青春须早为，岂能长少年。",
         "苟日新，日日新，又日新。",
         "与其临渊羡鱼，不如退而结网。",
-        "盛年不重来，一日难再晨。"
+        "盛年不重来，一日难再晨。",
+        "行到水穷处，坐看云起时。",
+        "采菊东篱下，悠然见南山。",
+        "山气日夕佳，飞鸟相与还。",
+        "明月松间照，清泉石上流。",
+        "江流天地外，山色有无中。",
+        "海上生明月，天涯共此时。",
+        "但愿人长久，千里共婵娟。",
+        "人有悲欢离合，月有阴晴圆缺。",
+        "回首向来萧瑟处，归去，也无风雨也无晴。",
+        "竹杖芒鞋轻胜马，谁怕？一蓑烟雨任平生。",
+        "此心安处是吾乡。",
+        "且将新火试新茶，诗酒趁年华。",
+        "人间有味是清欢。",
+        "小舟从此逝，江海寄余生。",
+        "掬水月在手，弄花香满衣。",
+        "春水碧于天，画船听雨眠。",
+        "落霞与孤鹜齐飞，秋水共长天一色。",
+        "星垂平野阔，月涌大江流。",
+        "野旷天低树，江清月近人。",
+        "春风又绿江南岸，明月何时照我还。",
+        "等闲识得东风面，万紫千红总是春。",
+        "草木有本心，何求美人折。",
+        "清水出芙蓉，天然去雕饰。",
+        "宠辱不惊，闲看庭前花开花落。",
+        "知足不辱，知止不殆。",
+        "己所不欲，勿施于人。",
+        "见贤思齐焉，见不贤而内自省也。",
+        "三人行，必有我师焉。",
+        "温故而知新，可以为师矣。",
+        "知者不惑，仁者不忧，勇者不惧。",
+        "君子和而不同，小人同而不和。",
+        "君子坦荡荡，小人长戚戚。",
+        "言必信，行必果。",
+        "满招损，谦受益。",
+        "尺有所短，寸有所长。",
+        "操千曲而后晓声，观千剑而后识器。",
+        "问渠那得清如许？为有源头活水来。",
+        "奇文共欣赏，疑义相与析。",
+        "读万卷书，行万里路。",
+        "凡事预则立，不预则废。"
     )
-    fun forDate(date: LocalDate): String = lines[Math.floorMod(date.toEpochDay(), lines.size.toLong()).toInt()]
+    val count: Int get() = lines.size
+    fun forDate(date: LocalDate, offset: Int = 0): String =
+        lines[Math.floorMod(date.toEpochDay() + offset, lines.size.toLong()).toInt()]
 }

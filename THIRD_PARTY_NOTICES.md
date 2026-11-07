@@ -13,8 +13,9 @@ Dependency versions are recorded in gradle/libs.versions.toml. Upstream copyrigh
 https://github.com/DrKLO/Telegram/blob/master/TMessagesProj/src/main/java/org/telegram/ui/Components/ProfileMetaballView.java .
 Copyright remains with the upstream Telegram contributors. The port preserves the
 connection angles and Bezier handles; it replaces Android PointF with Compose
-Offset and clamps acos inputs for numerical stability. The rendering integration
-in HomeProfileHeader.kt uses this port to connect the avatar to the display cutout.
+Offset and clamps acos inputs for numerical stability. This legacy utility is
+retained as source only; the current HomeProfileHeader uses a regular right-aligned
+avatar and no longer calls the metaball port.
 
 The upstream GNU GPL v2 text is included in LICENSES/Telegram-GPL-2.0.txt.
 The MIT grant for original code does not relicense this adaptation. Distribution

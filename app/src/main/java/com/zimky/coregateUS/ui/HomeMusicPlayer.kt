@@ -1,5 +1,13 @@
 package com.zimky.coregateUS.ui
 
+import android.content.Intent
+import android.media.MediaMetadataRetriever
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -15,15 +23,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -34,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -90,7 +94,7 @@ private class HomeStream(context: Context) {
         source = url
         loading = true
         requestVersion++
-        message = if (url.startsWith("asset:///music/")) "正在加载…" else "正在连接…"
+        message = if (url.startsWith("asset:///music/")) "正在加载…" else "正在读取音频…"
         val player = MediaPlayer()
         media = player
         try {
@@ -115,7 +119,7 @@ private class HomeStream(context: Context) {
                 }
             }
             player.setOnErrorListener { current, _, _ ->
-                if (media === current) fail("加载失败，请检查网络或音频直链")
+                if (media === current) fail("加载失败，请检查文件读取权限或音频地址")
                 true
             }
             player.setOnInfoListener { current, what, _ ->
@@ -218,7 +222,7 @@ private fun readTracks(prefs: android.content.SharedPreferences): List<HomeTrack
 }
 
 @Composable
-fun BoxScope.HomeMusicPlayer(active: Boolean) {
+fun BoxScope.HomeMusicPlayer() {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("home_music", Context.MODE_PRIVATE) }
     val stream = remember(context) { HomeStream(context) }
@@ -231,8 +235,9 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
     var currentId by remember { mutableStateOf(prefs.getString("current_id", null)) }
     val track = tracks.firstOrNull { it.id == currentId } ?: tracks.firstOrNull()
     var direction by remember { mutableIntStateOf(1) }
-    var expanded by rememberSaveable { mutableStateOf(true) }
-    var appeared by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val history = remember { mutableStateListOf<String>() }
     var showQueue by remember { mutableStateOf(false) }
     var edit by remember { mutableStateOf(false) }
     var editingId by remember { mutableStateOf<String?>(null) }
@@ -257,17 +262,27 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
         currentId = item.id
         persist(tracks, item.id)
         stream.reset()
-        if (continuePlaying && active) stream.toggle(item.url)
+        if (continuePlaying) stream.toggle(item.url)
     }
+    fun randomTrack(): HomeTrack? = tracks.filter { it.id != track?.id }.randomOrNull() ?: track
     fun step(delta: Int) {
         if (tracks.size < 2) return
-        val index = tracks.indexOfFirst { it.id == track?.id }.coerceAtLeast(0)
-        select(tracks[Math.floorMod(index + delta, tracks.size)], delta)
+        if (delta < 0) {
+            var previous: HomeTrack? = null
+            while (history.isNotEmpty() && previous == null) {
+                val id = history.removeAt(history.lastIndex)
+                previous = tracks.firstOrNull { it.id == id && it.id != track?.id }
+            }
+            select(previous ?: randomTrack() ?: return, -1)
+        } else {
+            track?.let { history.add(it.id) }
+            select(randomTrack() ?: return, 1)
+        }
     }
     val latestFinish by rememberUpdatedState<() -> Unit>({
-        if (active && tracks.size > 1) {
-            val index = tracks.indexOfFirst { it.id == track?.id }.coerceAtLeast(0)
-            val next = tracks[(index + 1) % tracks.size]
+        val next = randomTrack()
+        if (next != null) {
+            track?.let { history.add(it.id) }
             direction = 1
             currentId = next.id
             persist(tracks, next.id)
@@ -276,8 +291,49 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
         }
     })
     SideEffect { stream.onCompleted = { latestFinish() } }
-    LaunchedEffect(Unit) { delay(400); appeared = true }
-    LaunchedEffect(active) { if (!active) { stream.pause(); edit = false; showQueue = false } }
+    LaunchedEffect(Unit) {
+        if (prefs.getBoolean("autoplay_on_start", false)) {
+            tracks.randomOrNull()?.let {
+                currentId = it.id
+                persist(tracks, it.id)
+                stream.toggle(it.url)
+            }
+        }
+    }
+    val localPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val imported = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        var title = "本地音乐"
+                        var artist = "未知歌手"
+                        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                            if (it.moveToFirst()) title = it.getString(0)?.substringBeforeLast('.') ?: title
+                        }
+                        val metadata = MediaMetadataRetriever()
+                        try {
+                            runCatching { metadata.setDataSource(context, uri)
+                            metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() }?.let { title = it }
+                            metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.takeIf { it.isNotBlank() }?.let { artist = it }
+                            }
+                        } finally { metadata.release() }
+                        HomeTrack(UUID.randomUUID().toString(), uri.toString(), title, artist)
+                    }
+                }
+                imported.onSuccess { item ->
+                    val existing = tracks.firstOrNull { it.url == item.url }
+                    if (existing == null) {
+                        val list = tracks + item
+                        tracks = list
+                        if (currentId == null) currentId = item.id
+                        persist(list, currentId)
+                        Toaster.show("已导入：${item.title}")
+                    } else Toaster.show("这首歌已在歌单中")
+                }.onFailure { Toaster.show("无法导入，请选择可读取的音频文件", true) }
+            }
+        }
+    }
     LaunchedEffect(stream.playing) {
         while (stream.playing) { stream.tick(); delay(250) }
     }
@@ -291,37 +347,32 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer); stream.close() }
     }
-    Box(Modifier.align(Alignment.BottomEnd).padding(bottom = PAGE_BOTTOM_INSET + 16.dp)) {
-        AnimatedVisibility(visible = appeared && expanded,
-            enter = slideInHorizontally { it } + fadeIn(),
-            exit = slideOutHorizontally { it } + fadeOut()) {
-            Card(Modifier.padding(horizontal = 16.dp).widthIn(max = 320.dp)
-                .shadow(14.dp, RoundedCornerShape(24.dp))) {
-                Column(Modifier.animateContentSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    // One surface remains anchored at the right edge throughout both transitions.
+    Box(Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = PAGE_BOTTOM_INSET + 8.dp)) {
+        Card(Modifier.widthIn(max = 280.dp).shadow(10.dp, RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(22.dp))
+            .animateContentSize(animationSpec = tween(320), alignment = Alignment.BottomEnd)) {
+            if (expanded) {
+                Column(Modifier.width(280.dp).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         AnimatedContent(targetState = track, modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)),
                             transitionSpec = {
                                 (slideInHorizontally(tween(280)) { it * direction / 3 } + fadeIn(tween(220))) togetherWith
                                     (slideOutHorizontally(tween(240)) { -it * direction / 3 } + fadeOut(tween(160)))
                             }, label = "musicTrack") { item ->
-                            Column(Modifier.fillMaxWidth().clickable {
-                                editingId = item?.id; edit = true
-                            }) {
+                            Column(Modifier.fillMaxWidth().clickable { editingId = item?.id; edit = true }) {
                                 Text(item?.title?.ifBlank { "未命名歌曲" } ?: "随身听", color = cs.onSurface,
-                                    fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(item?.artist?.ifBlank { "未填写歌手" } ?: "添加喜欢的歌曲",
-                                    color = cs.onSurfaceVariantSummary, fontSize = 13.sp,
+                                    color = cs.onSurfaceVariantSummary, fontSize = 11.sp,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                         TextButton("收起", onClick = { expanded = false })
                     }
-                    Text(stream.message, color = cs.onSurfaceVariantSummary, fontSize = 11.sp, maxLines = 2)
-                    // Reset gesture and animation state for each song.
-                    key(track?.id) {
-                        MusicSeekBar(stream.position, stream.duration, stream.playing, stream::seek)
-                    }
+                    Text("随机播放 · ${stream.message}", color = cs.onSurfaceVariantSummary, fontSize = 10.sp, maxLines = 1)
+                    key(track?.id) { MusicSeekBar(stream.position, stream.duration, stream.playing, stream::seek) }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
                         MusicTransportButton("previous", "上一首", tracks.size > 1) { step(-1) }
@@ -330,23 +381,15 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
                             val selected = track
                             if (selected == null) { editingId = null; edit = true } else stream.toggle(selected.url)
                         }
-                        MusicTransportButton("next", "下一首", tracks.size > 1) { step(1) }
+                        MusicTransportButton("next", "随机下一首", tracks.size > 1) { step(1) }
                         TextButton("歌单", onClick = { showQueue = true })
                     }
                 }
-            }
-        }
-        if (!expanded) {
-            Box(Modifier.clip(RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp))
-                .background(cs.primary.copy(alpha = 0.16f))
-                .pointerInput(Unit) {
-                    var drag = 0f
-                    detectHorizontalDragGestures(onDragStart = { drag = 0f },
-                        onDragEnd = { if (drag < -20.dp.toPx()) expanded = true }) { change, delta ->
-                        change.consume(); drag += delta
-                    }
-                }.clickable { expanded = true }.padding(horizontal = 14.dp, vertical = 16.dp)) {
-                Text("‹ ♪", color = cs.primary, fontSize = 20.sp)
+            } else {
+                Box(Modifier.size(width = 56.dp, height = 48.dp).clickable { expanded = true },
+                    contentAlignment = Alignment.Center) {
+                    Text(if (stream.playing) "‹ ♫" else "‹ ♪", color = cs.primary, fontSize = 20.sp)
+                }
             }
         }
     }
@@ -370,7 +413,8 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
                         TextButton("编辑", onClick = { editingId = item.id; showQueue = false; edit = true })
                     }
                 }
-                TextButton("添加歌曲", onClick = { editingId = null; showQueue = false; edit = true })
+                TextButton("添加网络歌曲", onClick = { editingId = null; showQueue = false; edit = true })
+                TextButton("导入本地音乐", onClick = { showQueue = false; localPicker.launch(arrayOf("audio/*")) })
                 TextButton("关闭", onClick = { showQueue = false })
             }
         }
@@ -389,11 +433,14 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
                         fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text(if (original?.url?.startsWith("asset:///") == true)
                         "内置歌曲可直接离线播放，也可以修改歌名和歌手。" else
-                        "填写歌曲名称、歌手和可播放的 HTTPS 音频地址。", color = cs.onSurfaceVariantSummary, fontSize = 13.sp)
+                        "填写歌名、歌手与 HTTPS 音频地址，或导入本地文件。", color = cs.onSurfaceVariantSummary, fontSize = 13.sp)
                     MusicInput(draftTitle, { draftTitle = it.take(80) }, "歌曲名称")
                     MusicInput(draftArtist, { draftArtist = it.take(80) }, "歌手")
-                    if (original?.url?.startsWith("asset:///") != true)
+                    if (original?.url?.startsWith("asset:///") != true && original?.url?.startsWith("content://") != true)
                         MusicInput(draftUrl, { draftUrl = it.take(4096); error = "" }, "https://… 音频地址")
+                    if (original == null) TextButton("导入本地音乐", onClick = {
+                        edit = false; localPicker.launch(arrayOf("audio/*"))
+                    })
                     if (error.isNotBlank()) Text(error, color = cs.error, fontSize = 12.sp)
                     if (original != null) TextButton("从歌单移除", onClick = {
                         val list = tracks.filterNot { it.id == original.id }
@@ -405,7 +452,7 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
                         TextButton("保存", onClick = {
                             val candidate = draftUrl.trim()
                             val uri = Uri.parse(candidate)
-                            if (!(original != null && candidate == original.url && bundledTracks.any { it.url == candidate }) &&
+                            if (!(original != null && candidate == original.url && (bundledTracks.any { it.url == candidate } || Uri.parse(candidate).scheme == "content")) &&
                                 (uri.scheme != "https" || uri.host.isNullOrBlank() || !uri.userInfo.isNullOrBlank())) {
                                 error = "请填写有效的 HTTPS 音频地址"
                             } else if (draftTitle.isBlank() || draftArtist.isBlank()) {

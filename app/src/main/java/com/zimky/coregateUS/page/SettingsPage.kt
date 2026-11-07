@@ -129,6 +129,8 @@ fun SettingsPage(
     val cs = MiuixTheme.colorScheme
     // 在 @Composable 上下文里取一次，供 NavRow 的普通 onClick lambda 捕获使用
     val ctx = LocalContext.current
+    val musicPrefs = remember(ctx) { ctx.getSharedPreferences("home_music", 0) }
+    var musicAutoplay by remember { mutableStateOf(musicPrefs.getBoolean("autoplay_on_start", false)) }
     val s = snapshot
     val daemonAlive = s?.daemonAlive == true
     // ── 名单编辑缓冲：父级刷新回来时同步，用户改过则不覆盖 ──
@@ -232,6 +234,18 @@ fun SettingsPage(
                         else -> appearance.colorMode
                     }
                     setAppearance(appearance.copy(colorMode = mode, keyColor = keyColor))
+                }
+            }
+        }
+
+        SectionHeading("音乐")
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                SwitchRow(title = "打开 App 自动播放音乐", desc = "开启后，下次打开 App 自动随机播放歌单；切换页面持续播放。") {
+                    Switch(checked = musicAutoplay, onCheckedChange = {
+                        musicAutoplay = it
+                        musicPrefs.edit().putBoolean("autoplay_on_start", it).apply()
+                    }, colors = switchColors())
                 }
             }
         }
