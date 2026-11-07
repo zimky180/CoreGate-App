@@ -29,6 +29,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
+import top.yukonga.miuix.kmp.basic.Text
+
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -232,6 +236,19 @@ fun StartupIntro(onFinished: () -> Unit) {
                     native.restore()
                 }
             }
+            Text(
+                text = "让每一分电量，多一分陪伴",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .graphicsLayer {
+                        alpha = phase(t, 0.44f, 0.58f)
+                    },
+                color = Color(0xFFECFFF6).copy(alpha = 0.65f),
+                fontSize = 13.sp,
+                letterSpacing = 1.sp,
+                textAlign = TextAlign.Center
+            )
             Spacer(Modifier.height(12.dp))
         }
     }
