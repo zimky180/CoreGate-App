@@ -25,6 +25,7 @@ import top.yukonga.miuix.kmp.theme.ThemePaletteStyle
 @Composable
 fun MiuixKernelSUTheme(
     appSettings: AppSettings,
+    startupActive: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -73,11 +74,11 @@ fun MiuixKernelSUTheme(
     MiuixTheme(
         controller = controller,
         content = {
-            LaunchedEffect(darkTheme) {
+            LaunchedEffect(darkTheme, startupActive) {
                 val window = (context as? Activity)?.window ?: return@LaunchedEffect
                 WindowInsetsControllerCompat(window, window.decorView).apply {
-                    isAppearanceLightStatusBars = !darkTheme
-                    isAppearanceLightNavigationBars = !darkTheme
+                    isAppearanceLightStatusBars = !darkTheme && !startupActive
+                    isAppearanceLightNavigationBars = !darkTheme && !startupActive
                 }
             }
             CompositionLocalProvider(
