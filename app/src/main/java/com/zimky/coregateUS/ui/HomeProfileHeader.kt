@@ -49,7 +49,7 @@ fun HomeProfileHeader(onAvatarPosition: (androidx.compose.ui.layout.LayoutCoordi
         Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "换一句") {
             quoteOffset = (quoteOffset + 1) % DailyQuote.count
         }.padding(top = 6.dp)) {
-            Text("每日一言 · ${today.monthValue}月${today.dayOfMonth}日 · 点按换句", color = cs.primary, fontSize = 12.sp)
+            Text("每日一言 · ${today.monthValue}月${today.dayOfMonth}日", color = cs.primary, fontSize = 12.sp)
             Text(DailyQuote.forDate(today, quoteOffset), color = cs.onSurfaceVariantSummary,
                 fontSize = 15.sp, lineHeight = 24.sp)
         }

@@ -1,7 +1,5 @@
 package com.zimky.coregateUS.page
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -20,32 +18,18 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Reference: Duck-Detector-Refactoring ContributorsSection and its Miuix author details layout. */
 @Composable
-fun ContributorsPage(onBack: () -> Unit) {
+fun ContributorsSection() {
     val cs = MiuixTheme.colorScheme
     val context = LocalContext.current
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .statusBarsPadding().padding(horizontal = 16.dp).padding(top = 8.dp, bottom = PAGE_BOTTOM_INSET),
-        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        TextButton("‹ 返回", onClick = onBack)
-        PageHeading("贡献者", "感谢一起完善 CoreGate 的伙伴")
-        SectionHeading("贡献者", "3")
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SectionHeading("贡献者", contributorProfiles.size.toString())
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 ContributorWallCanvas(authors = contributorProfiles, onSelect = { selectedId = it.login })
                 HintText("拖动或双指缩放头像墙，点击头像查看贡献者。")
             }
         }
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(horizontal = 18.dp, vertical = 10.dp)) {
-                contributorProfiles.forEachIndexed { index, profile ->
-                    if (index > 0) HairLine()
-                    NavRow("${index + 1}. ${profile.name}", profile.contributionSummary,
-                        onClick = { selectedId = profile.login })
-                }
-            }
-        }
-        BottomSpacer()
     }
     contributorProfiles.firstOrNull { it.login == selectedId }?.let { profile ->
         Dialog(onDismissRequest = { selectedId = null }) {
@@ -64,11 +48,10 @@ fun ContributorsPage(onBack: () -> Unit) {
                         if (qq == null) {
                             Toaster.show("这位贡献者的 QQ 号尚未填写。")
                         } else {
-                            val uri = Uri.Builder().scheme("mqqwpa").authority("im").path("chat")
-                                .appendQueryParameter("chat_type", "wpa")
-                                .appendQueryParameter("uin", qq).appendQueryParameter("version", "1").build()
-                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
-                                .onFailure { Toaster.show("无法打开 QQ，请确认已安装 QQ。号码：$qq", true) }
+                            val url = "https://wpa.qq.com/msgrd?v=3&uin=$qq&site=qq&menu=yes"
+                            if (!openInBrowser(context, url)) {
+                                Toaster.show("无法打开浏览器。QQ 号码：$qq", true)
+                            }
                         }
                     }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary())
                     TextButton("关闭", onClick = { selectedId = null }, modifier = Modifier.fillMaxWidth())

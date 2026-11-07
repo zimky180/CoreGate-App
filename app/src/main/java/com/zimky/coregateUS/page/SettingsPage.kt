@@ -124,8 +124,7 @@ fun SettingsPage(
     packagesRaw: String,
     sh: RootShell,
     onRefresh: () -> Unit,
-    save: (CoreConfig, String?, ((Boolean, String) -> Unit)?) -> Unit,
-    onOpenContributors: () -> Unit = {}
+    save: (CoreConfig, String?, ((Boolean, String) -> Unit)?) -> Unit
 ) {
     val cs = MiuixTheme.colorScheme
     // 在 @Composable 上下文里取一次，供 NavRow 的普通 onClick lambda 捕获使用
@@ -659,15 +658,7 @@ fun SettingsPage(
         }
 
         com.zimky.coregateUS.ui.ApkUpdateCard()
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                NavRow(
-                    title = "贡献者",
-                    summary = "感谢一起完善 CoreGate 的 3 位伙伴",
-                    onClick = onOpenContributors
-                )
-            }
-        }
+        ContributorsSection()
 
         // ── 卡片六：联系作者 ─────────────────────────────────────────
         // 放在最底部：属于「想看才看」的内容，不占日常视野。

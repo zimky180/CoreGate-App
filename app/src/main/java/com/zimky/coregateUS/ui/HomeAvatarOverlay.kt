@@ -14,6 +14,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -39,7 +42,7 @@ class HomeAvatarAnchor {
     var avatar by mutableStateOf<LayoutCoordinates?>(null)
 }
 
-private data class AvatarFrame(val center: Offset, val radius: Float, val target: Offset, val absorbing: Boolean)
+private data class AvatarFrame(val center: Offset, val radius: Float, val alpha: Float)
 
 @Composable
 fun BoxScope.HomeAvatarOverlay(scroll: ScrollState, anchor: HomeAvatarAnchor) {
@@ -49,8 +52,9 @@ fun BoxScope.HomeAvatarOverlay(scroll: ScrollState, anchor: HomeAvatarAnchor) {
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     val background = MiuixTheme.colorScheme.surfaceContainerHigh.toArgb()
-    val renderer = remember(density.density) { TelegramAvatarRenderer(density.density) }
-    DisposableEffect(renderer) { onDispose { renderer.release() } }
+    val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG) }
+    val clip = remember { Path() }
+    val destination = remember { RectF() }
     var avatar by remember { mutableStateOf<ImageBitmap?>(null) }
     var saving by remember { mutableStateOf(false) }
     var selectionVersion by remember { mutableIntStateOf(0) }
@@ -78,9 +82,6 @@ fun BoxScope.HomeAvatarOverlay(scroll: ScrollState, anchor: HomeAvatarAnchor) {
     val bitmap = remember(avatar) { avatar?.asAndroidBitmap() }
     val statusHeight = WindowInsets.statusBars.getTop(density).toFloat()
     val avatarRadius = with(density) { 26.dp.toPx() }
-    val endRadius = with(density) { 12.dp.toPx() }
-    val approachHeight = with(density) { 100.dp.toPx() }
-    val endTop = with(density) { (-24).dp.toPx() }
     val currentSaving by rememberUpdatedState(saving)
 
     fun frame(): AvatarFrame? {
@@ -94,51 +95,61 @@ fun BoxScope.HomeAvatarOverlay(scroll: ScrollState, anchor: HomeAvatarAnchor) {
             ?.minByOrNull { kotlin.math.abs(it.centerX() - view.width / 2) }
         val target = Offset(
             (cutout?.exactCenterX() ?: (view.width / 2f)) - originInWindow.x,
-            (cutout?.bottom?.toFloat() ?: 0f) - originInWindow.y
+            (cutout?.exactCenterY() ?: (statusHeight / 2f)) - originInWindow.y
         )
         val startY = position.y + scroll.value
-        val travel = (startY - target.y - endTop - endRadius).coerceAtLeast(avatarRadius)
+        val travel = (startY - target.y).coerceAtLeast(avatarRadius)
         val progress = (scroll.value / travel).coerceIn(0f, 1f)
-        val approachTravel = (startY - target.y - approachHeight).coerceAtLeast(avatarRadius)
-        val horizontal = (scroll.value / approachTravel).coerceIn(0f, 1f)
-        val eased = horizontal * horizontal * (3f - 2f * horizontal)
-        val cx = position.x + (target.x - position.x) * eased
-        val cy = startY - travel * progress
-        val shrink = ((target.y + with(density) { 12.dp.toPx() } - cy) / with(density) { 24.dp.toPx() }).coerceIn(0f, 1f)
-        val radius = avatarRadius + (endRadius - avatarRadius) * shrink
-        val absorbing = horizontal >= 1f && cy - radius - target.y <= with(density) { 24.dp.toPx() }
-        return AvatarFrame(Offset(cx, cy), radius, target, absorbing)
+        val center = Offset(
+            position.x + (target.x - position.x) * progress,
+            startY + (target.y - startY) * progress
+        )
+        // Move the complete circular image; fade only as it reaches the camera.
+        val alpha = (1f - ((progress - 0.7f) / 0.3f).coerceIn(0f, 1f))
+        return AvatarFrame(center, avatarRadius, alpha)
     }
 
     Canvas(Modifier.fillMaxSize()) {
         val f = frame() ?: return@Canvas
         drawIntoCanvas { composeCanvas ->
             val canvas = composeCanvas.nativeCanvas
-            if (!f.absorbing) {
-                renderer.drawCircle(canvas, bitmap, f.center.x, f.center.y, f.radius, background)
-            } else {
-                canvas.save()
-                canvas.translate(0f, f.target.y)
-                renderer.drawAbsorption(canvas, bitmap, f.target.x,
-                    f.center.y - f.radius - f.target.y, f.radius, size.width)
-                canvas.restore()
+            if (f.alpha > 0f) {
+                val saveCount = canvas.save()
+                clip.reset()
+                clip.addCircle(f.center.x, f.center.y, f.radius, Path.Direction.CW)
+                canvas.clipPath(clip)
+                paint.alpha = (f.alpha * 255).toInt()
+                val image = bitmap
+                if (image == null) {
+                    paint.color = background
+                    paint.alpha = (f.alpha * 255).toInt()
+                    canvas.drawCircle(f.center.x, f.center.y, f.radius, paint)
+                } else {
+                    val scale = (f.radius * 2 / image.width).coerceAtLeast(f.radius * 2 / image.height)
+                    val halfWidth = image.width * scale / 2
+                    val halfHeight = image.height * scale / 2
+                    destination.set(f.center.x - halfWidth, f.center.y - halfHeight,
+                        f.center.x + halfWidth, f.center.y + halfHeight)
+                    canvas.drawBitmap(image, null, destination, paint)
+                }
+                canvas.restoreToCount(saveCount)
             }
         }
     }
     // Restrict hit testing to the moving avatar; the drawing layer never intercepts page gestures.
     Box(Modifier.size(52.dp).graphicsLayer {
         val f = frame()
-        translationX = if (f == null || f.absorbing) -10000f else f.center.x - avatarRadius
-        translationY = if (f == null || f.absorbing) -10000f else f.center.y - avatarRadius
+        translationX = if (f == null || f.alpha <= 0f) -10000f else f.center.x - avatarRadius
+        translationY = if (f == null || f.alpha <= 0f) -10000f else f.center.y - avatarRadius
         val scale = (f?.radius ?: avatarRadius) / avatarRadius
         scaleX = scale
         scaleY = scale
     }.pointerInput(scroll, anchor) {
         detectTapGestures {
             val f = frame()
-            if (!currentSaving && f != null && !f.absorbing) {
+            if (!currentSaving && f != null && f.alpha > 0f) {
                 picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
         }
-    }.semantics { contentDescription = "主页头像，点击从相册更换；上滑吸附，回滑还原" })
+    }.semantics { contentDescription = "主页头像，点击从相册更换；上滑移入摄像头消失，回滑还原" })
 }

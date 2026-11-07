@@ -181,7 +181,6 @@ private const val MIN_REFRESH_GAP = 1_200L
 private object SubPage {
     const val NONE = ""
     const val FREEZE = "freeze"
-    const val CONTRIBUTORS = "contributors"
 }
 
 /** 底栏四栏文案。 */
@@ -496,8 +495,7 @@ private fun AppRoot() {
                     FreqPage(cfg, snapshot, packagesRaw, RootShell, { refresh(false) }, ::save)
                 }
                 PageSlot(visible = currentTab == 3) {
-                    SettingsPage(cfg, snapshot, packagesRaw, RootShell, { refresh(true) }, ::save,
-                        onOpenContributors = { subPage = SubPage.CONTRIBUTORS })
+                    SettingsPage(cfg, snapshot, packagesRaw, RootShell, { refresh(true) }, ::save)
                 }
 
                 // 二级页：盖在四个常驻页之上。
@@ -537,9 +535,6 @@ private fun AppRoot() {
                             ) {}
                     ) {
                         when (subPage) {
-                            SubPage.CONTRIBUTORS -> com.zimky.coregateUS.page.ContributorsPage(
-                                onBack = { closeSubPage() }
-                            )
                             SubPage.FREEZE -> FreezePage(
                                 cfg = cfg,
                                 sh = RootShell,

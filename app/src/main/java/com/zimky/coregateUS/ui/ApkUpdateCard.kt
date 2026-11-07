@@ -3,6 +3,16 @@ package com.zimky.coregateUS.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
@@ -30,35 +40,40 @@ fun ApkUpdateCard() {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
             .onFailure { Toaster.show("无法打开链接，请检查浏览器是否可用。", true) }
     }
+    fun checkUpdates() {
+        if (busy) return
+        busy = true
+        scope.launch {
+            try {
+                result = ApkUpdates.check()
+                showDetails = result is ApkUpdates.Result.Available
+            } finally { busy = false }
+        }
+    }
+    val message = when (val value = result) {
+        is ApkUpdates.Result.Available -> "发现新版本 ${value.release.version}，点按查看"
+        is ApkUpdates.Result.Current -> "已是最新版本（GitHub：${value.version}）"
+        is ApkUpdates.Result.Failed -> value.message
+        ApkUpdates.Result.NoRelease -> "GitHub 暂无正式版 APK 发布"
+        null -> "当前 APK：${BuildConfig.VERSION_NAME}"
+    }
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("GitHub 检查更新", color = cs.onSurface, fontSize = 16.sp)
-            SubText("当前 APK：${BuildConfig.VERSION_NAME}")
-            val message = when (val value = result) {
-                is ApkUpdates.Result.Available -> "发现新版本 ${value.release.version}"
-                is ApkUpdates.Result.Current -> "当前 APK 已是最新或更新版本（GitHub：${value.version}）"
-                is ApkUpdates.Result.Failed -> value.message
-                ApkUpdates.Result.NoRelease -> "GitHub 暂无可安装的正式版 APK 发布。"
-                null -> "检查 GitHub Releases 中的 APK 更新。"
+        Row(Modifier.fillMaxWidth().clickable(role = Role.Button) {
+            if (!busy) {
+                if (result is ApkUpdates.Result.Available) showDetails = true else checkUpdates()
             }
-            HintText(if (busy) "正在检查…" else message)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(if (busy) "检查中…" else "检查 APK 更新", onClick = {
-                    if (!busy) {
-                        busy = true
-                        scope.launch {
-                            try {
-                                result = ApkUpdates.check()
-                                showDetails = result is ApkUpdates.Result.Available
-                            } finally { busy = false }
-                        }
-                    }
-                }, colors = ButtonDefaults.textButtonColorsPrimary())
-                if (result is ApkUpdates.Result.Available) {
-                    TextButton("查看更新", onClick = { showDetails = true })
-                }
+        }.padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("检查更新", color = cs.onSurface, fontSize = 16.sp)
+                SubText(if (busy) "正在检查…" else message)
             }
-            TextButton("前往 GitHub 发布页", onClick = { openLink(ApkUpdates.RELEASES_URL) })
+            Box(Modifier.size(40.dp).clickable(enabled = !busy, role = Role.Button,
+                onClickLabel = "检查 APK 更新", onClick = { checkUpdates() }),
+                contentAlignment = Alignment.Center) {
+                UpdateCheckSpinner(busy)
+            }
         }
     }
     val release = (result as? ApkUpdates.Result.Available)?.release
@@ -83,5 +98,23 @@ fun ApkUpdateCard() {
                 }
             }
         }
+    }
+}
+@Composable
+private fun UpdateCheckSpinner(busy: Boolean) {
+    val rotation = if (busy) {
+        val transition = rememberInfiniteTransition(label = "updateCheck")
+        val angle by transition.animateFloat(
+            initialValue = 0f, targetValue = 360f,
+            animationSpec = infiniteRepeatable(tween(850, easing = LinearEasing), RepeatMode.Restart),
+            label = "updateRotation"
+        )
+        angle
+    } else 0f
+    val color = MiuixTheme.colorScheme.primary
+    Canvas(Modifier.size(22.dp).graphicsLayer { rotationZ = rotation }
+        .semantics { contentDescription = if (busy) "正在检查更新" else "检查更新" }) {
+        drawArc(color, startAngle = -65f, sweepAngle = 285f, useCenter = false,
+            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
     }
 }
