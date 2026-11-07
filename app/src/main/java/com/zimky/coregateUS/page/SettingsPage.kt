@@ -124,7 +124,8 @@ fun SettingsPage(
     packagesRaw: String,
     sh: RootShell,
     onRefresh: () -> Unit,
-    save: (CoreConfig, String?, ((Boolean, String) -> Unit)?) -> Unit
+    save: (CoreConfig, String?, ((Boolean, String) -> Unit)?) -> Unit,
+    onOpenContributors: () -> Unit = {}
 ) {
     val cs = MiuixTheme.colorScheme
     // 在 @Composable 上下文里取一次，供 NavRow 的普通 onClick lambda 捕获使用
@@ -148,6 +149,7 @@ fun SettingsPage(
     //     用户再点旁边的「保存名单」即可落盘。
     // 匹配大小写不敏感，因为 Android 包名虽然全小写，但用户手抄时常带大写。
     var query by remember { mutableStateOf("") }
+    var packagesExpanded by rememberSaveable { mutableStateOf(false) }
 
 
     // ── 日志状态 ──
@@ -359,6 +361,7 @@ fun SettingsPage(
                                 onClick = {
                                     listText = appendPackage(listText, q)
                                     listDirty = true
+                                    packagesExpanded = true
                                     Toaster.show("已加到名单末尾，记得点「保存名单」")
                                 },
                                 colors = ButtonDefaults.textButtonColorsPrimary()
@@ -367,52 +370,62 @@ fun SettingsPage(
                     }
                 }
                 CardDivider()
-                Text(text = "编辑名单", color = cs.onSurface, fontSize = 16.sp)
-                Gap(10.dp)
-                SubText("每行一个包名。命中名单时模块会自动放开全部核心，退出后恢复锁核。")
-                Gap(10.dp)
-                OutlinedTextField(
-                    value = listText,
-                    onValueChange = {
-                        listText = it
-                        listDirty = it != packagesRaw
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 132.dp),
-                    textStyle = TextStyle(
-                        fontSize = 12.5.sp,
-                        lineHeight = 18.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = cs.onSurface
-                    ),
-                    placeholder = { HintText("com.example.game") },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = fieldColors()
+                NavRow(
+                    title = "编辑包名名单",
+                    summary = (if (packagesExpanded) "收起" else "展开") +
+                        " · ${listText.lineSequence().count { it.isNotBlank() }} 个包名" +
+                        if (listDirty) " · 未保存" else "",
+                    onClick = { packagesExpanded = !packagesExpanded }
                 )
-                Gap(8.dp)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val count = listText.lineSequence().count { it.isNotBlank() }
-                    HintText("共 $count 个包名" + if (listDirty) "（有未保存改动）" else "")
-                    Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
-                        TextButton(
-                            text = "保存名单",
-                            onClick = {
-                                save(cfg, listText) { ok, msg ->
-                                    if (ok) {
-                                        listDirty = false
-                                        Toaster.show("名单已保存")
-                                        onRefresh()
-                                    } else {
-                                        Toaster.show("保存失败：$msg", true)
-                                    }
-                                }
+                AnimatedVisibility(visible = packagesExpanded) {
+                    Column {
+                        Gap(10.dp)
+                        SubText("每行一个包名。命中名单时模块会自动放开全部核心，退出后恢复锁核。")
+                        Gap(10.dp)
+                        OutlinedTextField(
+                            value = listText,
+                            onValueChange = {
+                                listText = it
+                                listDirty = it != packagesRaw
                             },
-                            colors = ButtonDefaults.textButtonColorsPrimary()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 132.dp, max = 260.dp),
+                            textStyle = TextStyle(
+                                fontSize = 12.5.sp,
+                                lineHeight = 18.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = cs.onSurface
+                            ),
+                            placeholder = { HintText("com.example.game") },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = fieldColors()
                         )
+                        Gap(8.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val count = listText.lineSequence().count { it.isNotBlank() }
+                            HintText("共 $count 个包名" + if (listDirty) "（有未保存改动）" else "")
+                            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
+                                TextButton(
+                                    text = "保存名单",
+                                    onClick = {
+                                        save(cfg, listText) { ok, msg ->
+                                            if (ok) {
+                                                listDirty = false
+                                                Toaster.show("名单已保存")
+                                                onRefresh()
+                                            } else {
+                                                Toaster.show("保存失败：$msg", true)
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.textButtonColorsPrimary()
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -642,6 +655,17 @@ fun SettingsPage(
                 )
                 Gap(8.dp)
                 HintText("APK 是唯一的操作入口，直接读写模块的 config.json 与 packages.txt，不依赖任何 WebUI。")
+            }
+        }
+
+        com.zimky.coregateUS.ui.ApkUpdateCard()
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                NavRow(
+                    title = "贡献者",
+                    summary = "感谢一起完善 CoreGate 的 3 位伙伴",
+                    onClick = onOpenContributors
+                )
             }
         }
 

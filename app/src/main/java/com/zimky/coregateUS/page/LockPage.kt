@@ -42,6 +42,10 @@ import com.zimky.coregateUS.core.RootShell
 import com.zimky.coregateUS.core.SysProbe
 import com.zimky.coregateUS.ui.AnimatedGradientText
 import androidx.compose.runtime.LaunchedEffect
+import com.zimky.coregateUS.ui.HomeAvatarAnchor
+import com.zimky.coregateUS.ui.HomeAvatarOverlay
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.zimky.coregateUS.ui.HomeProfileHeader
 import com.zimky.coregateUS.ui.SectionHeading
 import com.zimky.coregateUS.ui.SummaryMetric
@@ -117,7 +121,9 @@ fun LockPage(
     // 拆成 Box 之后，Column 只负责滚动内容，弹窗作为兄弟层叠在上面，
     // 用 fillMaxSize 覆盖整屏、Alignment.Center 居中，与滚动位置彻底无关。
     val homeScroll = rememberScrollState()
-    Box(modifier = Modifier.fillMaxSize()) {
+    // Coordinates are read in the draw pass; do not feed scroll-dependent bounds back into composition.
+    val avatarAnchor = remember { HomeAvatarAnchor() }
+    Box(modifier = Modifier.fillMaxSize().onGloballyPositioned { avatarAnchor.root = it }) {
     Column(
         modifier = Modifier
             // 一级页必须自己铺满整屏：
@@ -133,17 +139,27 @@ fun LockPage(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
 
-        HomeProfileHeader()
+        HomeProfileHeader(onAvatarPosition = { avatarAnchor.avatar = it })
 
-        val moduleMismatch = s?.svcState == true && s.moduleVersionCode != null &&
-            (s.moduleVersionCode != com.zimky.coregateUS.BuildConfig.VERSION_CODE ||
-                s.moduleVersion != com.zimky.coregateUS.BuildConfig.VERSION_NAME.removePrefix("v"))
-        if (moduleMismatch) {
+        val pairing = com.zimky.coregateUS.core.VersionPairing.evaluate(
+            s?.svcState, s?.moduleVersion, s?.moduleVersionCode
+        )
+        if (pairing == com.zimky.coregateUS.core.VersionPairing.Status.MISMATCH) {
             Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AnimatedGradientText("APK 与模块 ZIP 版本不一致", cs.error)
+                    Text("APK：${com.zimky.coregateUS.BuildConfig.VERSION_NAME} (${com.zimky.coregateUS.BuildConfig.VERSION_CODE})",
+                        color = cs.onSurface, fontSize = 13.sp)
+                    Text("模块 ZIP：${s?.moduleVersion?.takeIf { it.isNotBlank() } ?: "版本名未知"} (${s?.moduleVersionCode?.toString() ?: "版本码未知"})",
+                        color = cs.onSurface, fontSize = 13.sp)
+                    Text("请安装同一版本的 APK 和模块 ZIP；刷入模块后重启设备。",
+                        color = cs.onSurfaceVariantSummary, fontSize = 12.sp)
+                }
+            }
+        } else if (s?.svcState == true && pairing == com.zimky.coregateUS.core.VersionPairing.Status.UNKNOWN) {
+            Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
-                    AnimatedGradientText("请更新配套模块", cs.error)
-                    Gap(6.dp)
-                    Text("APK ${com.zimky.coregateUS.BuildConfig.VERSION_NAME} · 模块 ${s?.moduleVersion}，请刷入与 APK 配套的模块 ZIP 并重启。",
+                    Text("模块 ZIP 版本尚未读全，暂无法确认与 APK 是否配套。",
                         color = cs.onSurfaceVariantSummary, fontSize = 12.sp)
                 }
             }
@@ -354,6 +370,8 @@ fun LockPage(
     // ── 核心封锁/解封二次确认（整屏浮层，居中弹出） ────────────────
     // 与滚动 Column 同级、排在它后面，因此天然覆盖在内容之上，
     // 且不参与 verticalScroll 的测量，滚动到哪儿都居中。
+
+    HomeAvatarOverlay(homeScroll, avatarAnchor)
 
     pendingCore?.let { core ->
         CoreConfirmDialog(

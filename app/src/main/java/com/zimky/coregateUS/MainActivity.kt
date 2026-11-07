@@ -181,6 +181,7 @@ private const val MIN_REFRESH_GAP = 1_200L
 private object SubPage {
     const val NONE = ""
     const val FREEZE = "freeze"
+    const val CONTRIBUTORS = "contributors"
 }
 
 /** 底栏四栏文案。 */
@@ -495,7 +496,8 @@ private fun AppRoot() {
                     FreqPage(cfg, snapshot, packagesRaw, RootShell, { refresh(false) }, ::save)
                 }
                 PageSlot(visible = currentTab == 3) {
-                    SettingsPage(cfg, snapshot, packagesRaw, RootShell, { refresh(true) }, ::save)
+                    SettingsPage(cfg, snapshot, packagesRaw, RootShell, { refresh(true) }, ::save,
+                        onOpenContributors = { subPage = SubPage.CONTRIBUTORS })
                 }
 
                 // 二级页：盖在四个常驻页之上。
@@ -535,6 +537,9 @@ private fun AppRoot() {
                             ) {}
                     ) {
                         when (subPage) {
+                            SubPage.CONTRIBUTORS -> com.zimky.coregateUS.page.ContributorsPage(
+                                onBack = { closeSubPage() }
+                            )
                             SubPage.FREEZE -> FreezePage(
                                 cfg = cfg,
                                 sh = RootShell,
@@ -553,7 +558,7 @@ private fun AppRoot() {
             HomeMusicPlayer()
 
             // 顶部仍显示系统状态栏；界面在其背后滚动，薄雾保留内容层次。
-            Box(Modifier.align(Alignment.TopCenter).fillMaxWidth()
+            if (currentTab != 0 || subPage != SubPage.NONE) Box(Modifier.align(Alignment.TopCenter).fillMaxWidth()
                 .height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
                 .drawBackdrop(backdrop = backdrop, shape = { RectangleShape },
                     effects = { blur(18.dp.toPx(), 18.dp.toPx()) },
