@@ -38,7 +38,11 @@ internal val contributorProfiles = listOf(
     AuthorProfile("tester-doze", "doze", "测试贡献 · 问题反馈\n参与测试版体验，提供宝贵的 Bug 反馈，帮助发现问题并完善使用体验。",
         qq = "1542101707", avatarRes = R.drawable.contributor_doze),
     AuthorProfile("creative-binghongchang", "冰红肠大王", "创意贡献 · 想法与建议\n分享创意与功能设想，为 CoreGate 的后续完善提供灵感。",
-        qq = "3995822963", avatarRes = R.drawable.contributor_binghongchang)
+        qq = "3995822963", avatarRes = R.drawable.contributor_binghongchang),
+    AuthorProfile("ideas-chenyang", "晨阳", "思路贡献 · 限频方案\n分享限频思路，为 CoreGate 的限频方案完善提供参考。",
+        qq = "2137315028", avatarRes = R.drawable.contributor_chenyang),
+    AuthorProfile("ideas-jiegantian", "节甘天baby", "思路贡献 · 限频方案\n分享限频思路，为 CoreGate 的限频方案完善提供参考。",
+        qq = "3565733924", avatarRes = R.drawable.contributor_jiegantian)
 )
 
 @Composable
