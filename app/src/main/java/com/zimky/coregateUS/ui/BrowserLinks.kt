@@ -13,8 +13,17 @@ internal fun openInBrowser(context: Context, url: String): Boolean = runCatching
     val probe = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com/"))
         .addCategory(Intent.CATEGORY_BROWSABLE)
     val browsers = context.packageManager.queryIntentActivities(
-        probe, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
-    ).filter { it.handleAllWebDataURI && it.activityInfo.exported }
+        probe, PackageManager.ResolveInfoFlags.of(
+            (PackageManager.MATCH_DEFAULT_ONLY or PackageManager.GET_RESOLVED_FILTER).toLong()
+        )
+    ).filter { resolved ->
+        val filter = resolved.filter
+        resolved.activityInfo.exported && filter != null &&
+            filter.hasAction(Intent.ACTION_VIEW) &&
+            filter.hasCategory(Intent.CATEGORY_BROWSABLE) &&
+            filter.hasDataScheme("https") &&
+            filter.countDataAuthorities() == 0 && filter.countDataPaths() == 0
+    }
         .distinctBy { it.activityInfo.packageName }
     if (browsers.isEmpty()) return false
     val targets = browsers.map { browser ->
