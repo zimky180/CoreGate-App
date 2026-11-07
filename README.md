@@ -2,13 +2,42 @@
 
 CoreGate 原生 Android 管理界面，作者 zimky。基于 Compose 与 Miuix，实现锁核状态、游戏策略、限频和冻结管理。具体策略由独立模块守护进程执行，关闭 App 后模块继续工作。
 
+## v2.3.1
+
+本次以 APK 界面与交互更新为主，同时发布包含冻结管理修复的模块 ZIP。请配套更新 APK 与模块。
+
+### APK 界面与交互
+
+- 开屏加入 CoreGate 粒子聚合与文字过渡，并在标题下淡入「让每一分电量，多一分陪伴」。
+- 调整首页与设置页的布局、头像动画及交互细节，沿用 Compose + Miuix 原生界面和悬浮底部导航。
+- 贡献者内容融入关于区域，头像墙支持拖动、缩放；名单更新至 10 位，补充头像、QQ 与贡献介绍。
+- 贡献者提供 QQ 会话入口与复制 QQ 号，修正浏览器选择逻辑，使用公开 IntentFilter API。
+- 优化更新检查反馈与状态标记。
+- 加入全局音乐播放入口、本地音乐导入及默认自动播放，整理播放交互与离线文案。
+
+### 模块 ZIP：冻结管理修复
+
+- 更新冻结执行链路，使用应用停用 / 启用与实际状态校验；改进 ColorOS 环境下 PackageManager 命令执行。
+- 启动时等待 PackageManager 就绪，未就绪时保留策略等待重试。
+- 保存应用原始状态，恢复时保留用户原先停用的应用；改进分组与单项冻结覆盖关系。
+- 分组与单项操作增加结果检查和失败反馈，改进当前冻结状态查询与恢复流程。
+- 此次模块 ZIP 同步当前冻结修复源码，替换旧发布包中的冻结实现。
+
+### 版本与安装
+
+- APK 与模块统一为 v2.3.1，versionCode 231；重启保留用户配置。
+- APK 是管理界面，策略仍由模块执行，关闭 APK 后模块继续运行。
+- 当前仍以一加 Ace 6T / 骁龙 8 Gen 5 为主要适配对象。
+- 自定义限频历史反馈仍待完整真机复验，本次未将其列为已修复问题。
+
+
 ## 下载与源码
 
 - APK 下载：[本仓库 Releases](https://github.com/zimky180/CoreGate-App/releases)
 - 模块 ZIP 与开源仓库：[zimky180/CoreGate](https://github.com/zimky180/CoreGate)
 - 模块 ZIP 下载：[模块 Releases](https://github.com/zimky180/CoreGate/releases)
 
-Android 13（API 33）及以上，需要 root 与配套模块。当前 v2.3.0 仍以骁龙 8 Gen 5 / 一加 Ace 6T 为适配和验证重点，不宣称支持所有设备。
+Android 13（API 33）及以上，需要 root 与配套模块。当前 v2.3.1 仍以骁龙 8 Gen 5 / 一加 Ace 6T 为适配和验证重点，不宣称支持所有设备。
 
 ## v2.3.0
 
@@ -35,4 +64,4 @@ JDK 17、Gradle 9.3.1、Android SDK 37，执行 `gradle assembleDebug assembleRe
 
 ## 第三方说明
 
-界面使用 Compose、Miuix 与 Material Kolor。液态效果文件保留 AndroidLiquidGlass / compose-miuix-ui 的上游来源注释；相应第三方代码遵循其各自许可证。自有代码使用 MIT 许可证，详见 LICENSE 与 THIRD_PARTY_NOTICES.md。
+界面使用 Compose、Miuix 与 Material Kolor。液态效果文件保留 AndroidLiquidGlass / compose-miuix-ui 的上游来源注释；相应第三方代码遵循其各自许可证。自有代码使用 MIT 许可证；Duck-Detector 移植部分按 Apache-2.0 保留来源与许可。Telegram 移植代码已移除。详见 LICENSE、LICENSES 与 THIRD_PARTY_NOTICES.md。
