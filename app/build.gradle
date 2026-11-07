@@ -33,6 +33,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    androidResources {
+        noCompress += ['m4a']
+    }
+
     buildFeatures {
         buildConfig true
         compose true

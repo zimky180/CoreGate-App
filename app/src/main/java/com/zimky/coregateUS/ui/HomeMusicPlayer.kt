@@ -6,6 +6,15 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -42,7 +51,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** Foreground-only, on-demand stream. No music files or background service. */
+/** Foreground-only player for bundled assets and optional HTTPS streams. */
 private class HomeStream(context: Context) {
     private val app = context.applicationContext
     private val audio = requireNotNull(app.getSystemService(AudioManager::class.java))
@@ -50,6 +59,10 @@ private class HomeStream(context: Context) {
     private var prepared = false
     private var wantsPlay = false
     private var source = ""
+    var onCompleted: () -> Unit = {}
+    private var pendingSeek: Int? = null
+    var requestVersion by mutableIntStateOf(0)
+        private set
     var playing by mutableStateOf(false)
         private set
     var loading by mutableStateOf(false)
@@ -58,7 +71,7 @@ private class HomeStream(context: Context) {
         private set
     var duration by mutableIntStateOf(0)
         private set
-    var message by mutableStateOf("添加一首喜欢的歌")
+    var message by mutableStateOf("点击播放，支持离线收听")
         private set
     private val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
@@ -76,7 +89,8 @@ private class HomeStream(context: Context) {
         wantsPlay = true
         source = url
         loading = true
-        message = "正在连接…"
+        requestVersion++
+        message = if (url.startsWith("asset:///music/")) "正在加载…" else "正在连接…"
         val player = MediaPlayer()
         media = player
         try {
@@ -97,6 +111,7 @@ private class HomeStream(context: Context) {
                     position = duration
                     message = "播放结束"
                     audio.abandonAudioFocusRequest(focus)
+                    onCompleted()
                 }
             }
             player.setOnErrorListener { current, _, _ ->
@@ -110,7 +125,16 @@ private class HomeStream(context: Context) {
                 }
                 false
             }
-            player.setDataSource(app, Uri.parse(url))
+            player.setOnSeekCompleteListener {
+                if (media === it) { pendingSeek = null; tick() }
+            }
+            if (url in bundledTracks.map { it.url }) {
+                app.assets.openFd(url.removePrefix("asset:///" )).use { asset ->
+                    player.setDataSource(asset.fileDescriptor, asset.startOffset, asset.length)
+                }
+            } else {
+                player.setDataSource(app, Uri.parse(url))
+            }
             player.prepareAsync()
         } catch (_: Exception) { fail("无法打开这个音频地址") }
     }
@@ -140,19 +164,20 @@ private class HomeStream(context: Context) {
     }
 
     fun tick() {
-        if (prepared) try { position = media?.currentPosition ?: 0 } catch (_: Exception) { }
+        if (prepared && pendingSeek == null) try { position = media?.currentPosition ?: 0 } catch (_: Exception) { }
     }
 
     fun seek(fraction: Float) {
         if (!prepared || duration <= 0) return
         try {
             position = (duration * fraction).toInt().coerceIn(0, duration)
-            media?.seekTo(position)
+            pendingSeek = position
+            media?.seekTo(position.toLong(), MediaPlayer.SEEK_CLOSEST)
         } catch (_: Exception) { }
     }
 
     fun fail(text: String) { releaseMedia(); message = text }
-    fun reset() { releaseMedia(); message = "点击播放，在线加载" }
+    fun reset() { releaseMedia(); message = "点击播放" }
     private fun releaseMedia() {
         val previous = media
         media = null
@@ -162,10 +187,34 @@ private class HomeStream(context: Context) {
         wantsPlay = false
         position = 0
         duration = 0
+        pendingSeek = null
         previous?.release()
         audio.abandonAudioFocusRequest(focus)
     }
     fun close() { releaseMedia() }
+}
+
+private data class HomeTrack(val id: String, val url: String, val title: String, val artist: String)
+
+private val bundledTracks = listOf(
+    HomeTrack("builtin_a01", "asset:///music/a01.m4a", "甲乙丙丁", "李佳薇"),
+    HomeTrack("builtin_a02", "asset:///music/a02.m4a", "左转灯", "派伟俊 & mac ova seas"),
+    HomeTrack("builtin_a03", "asset:///music/a03.m4a", "迷失环境", "IN-K & 王忻辰"),
+    HomeTrack("builtin_a04", "asset:///music/a04.m4a", "坏女孩", "徐良"),
+)
+
+private fun readTracks(prefs: android.content.SharedPreferences): List<HomeTrack> {
+    val raw = prefs.getString("tracks", null)
+    if (raw != null) return runCatching {
+        val array = JSONArray(raw)
+        (0 until array.length()).map { index ->
+            val item = array.getJSONObject(index)
+            HomeTrack(item.getString("id"), item.getString("url"), item.optString("title"), item.optString("artist"))
+        }.filter { it.url.isNotBlank() }
+    }.getOrDefault(emptyList())
+    val oldUrl = prefs.getString("url", "").orEmpty()
+    return if (oldUrl.isBlank()) emptyList() else listOf(HomeTrack("legacy", oldUrl,
+        prefs.getString("title", "我的音乐").orEmpty(), ""))
 }
 
 @Composable
@@ -173,19 +222,66 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("home_music", Context.MODE_PRIVATE) }
     val stream = remember(context) { HomeStream(context) }
-    var url by remember { mutableStateOf(prefs.getString("url", "").orEmpty()) }
-    var title by remember { mutableStateOf(prefs.getString("title", "我的音乐").orEmpty()) }
+    var tracks by remember {
+        val saved = readTracks(prefs)
+        val initial = if (prefs.getBoolean("bundled_seeded_v1", false)) saved else
+            saved + bundledTracks.filter { built -> saved.none { it.id == built.id } }
+        mutableStateOf(initial)
+    }
+    var currentId by remember { mutableStateOf(prefs.getString("current_id", null)) }
+    val track = tracks.firstOrNull { it.id == currentId } ?: tracks.firstOrNull()
+    var direction by remember { mutableIntStateOf(1) }
     var expanded by rememberSaveable { mutableStateOf(true) }
     var appeared by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
     var edit by remember { mutableStateOf(false) }
+    var editingId by remember { mutableStateOf<String?>(null) }
     val owner = LocalLifecycleOwner.current
     val cs = MiuixTheme.colorScheme
-    LaunchedEffect(Unit) { delay(400); appeared = true }
-    LaunchedEffect(active) { if (!active) { stream.pause(); edit = false } }
-    LaunchedEffect(stream.playing) {
-        while (stream.playing) { stream.tick(); delay(500) }
+    fun persist(list: List<HomeTrack>, id: String?) {
+        val array = JSONArray()
+        list.forEach { item -> array.put(JSONObject().put("id", item.id).put("url", item.url)
+            .put("title", item.title).put("artist", item.artist)) }
+        prefs.edit().putString("tracks", array.toString()).putString("current_id", id).apply()
     }
-    LaunchedEffect(stream.loading) {
+    LaunchedEffect(Unit) {
+        if (!prefs.getBoolean("bundled_seeded_v1", false)) {
+            persist(tracks, currentId ?: tracks.firstOrNull()?.id)
+            prefs.edit().putBoolean("bundled_seeded_v1", true).apply()
+        }
+    }
+    fun select(item: HomeTrack, step: Int) {
+        if (item.id == track?.id) return
+        val continuePlaying = stream.playing || stream.loading
+        direction = step
+        currentId = item.id
+        persist(tracks, item.id)
+        stream.reset()
+        if (continuePlaying && active) stream.toggle(item.url)
+    }
+    fun step(delta: Int) {
+        if (tracks.size < 2) return
+        val index = tracks.indexOfFirst { it.id == track?.id }.coerceAtLeast(0)
+        select(tracks[Math.floorMod(index + delta, tracks.size)], delta)
+    }
+    val latestFinish by rememberUpdatedState<() -> Unit>({
+        if (active && tracks.size > 1) {
+            val index = tracks.indexOfFirst { it.id == track?.id }.coerceAtLeast(0)
+            val next = tracks[(index + 1) % tracks.size]
+            direction = 1
+            currentId = next.id
+            persist(tracks, next.id)
+            stream.reset()
+            stream.toggle(next.url)
+        }
+    })
+    SideEffect { stream.onCompleted = { latestFinish() } }
+    LaunchedEffect(Unit) { delay(400); appeared = true }
+    LaunchedEffect(active) { if (!active) { stream.pause(); edit = false; showQueue = false } }
+    LaunchedEffect(stream.playing) {
+        while (stream.playing) { stream.tick(); delay(250) }
+    }
+    LaunchedEffect(stream.loading, stream.requestVersion) {
         if (stream.loading) { delay(30_000); if (stream.loading) stream.fail("连接超时，请检查音频地址后重试") }
     }
     DisposableEffect(owner, stream) {
@@ -199,39 +295,43 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
         AnimatedVisibility(visible = appeared && expanded,
             enter = slideInHorizontally { it } + fadeIn(),
             exit = slideOutHorizontally { it } + fadeOut()) {
-            Card(Modifier.padding(horizontal = 16.dp).widthIn(max = 300.dp)
+            Card(Modifier.padding(horizontal = 16.dp).widthIn(max = 320.dp)
                 .shadow(14.dp, RoundedCornerShape(24.dp))) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.animateContentSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f).clickable { edit = true }) {
-                            Text(if (url.isBlank()) "随身听" else title.ifBlank { "我的音乐" },
-                                color = cs.onSurface, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(stream.message, color = cs.onSurfaceVariantSummary, fontSize = 12.sp,
-                                maxLines = 2)
+                        AnimatedContent(targetState = track, modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)),
+                            transitionSpec = {
+                                (slideInHorizontally(tween(280)) { it * direction / 3 } + fadeIn(tween(220))) togetherWith
+                                    (slideOutHorizontally(tween(240)) { -it * direction / 3 } + fadeOut(tween(160)))
+                            }, label = "musicTrack") { item ->
+                            Column(Modifier.fillMaxWidth().clickable {
+                                editingId = item?.id; edit = true
+                            }) {
+                                Text(item?.title?.ifBlank { "未命名歌曲" } ?: "随身听", color = cs.onSurface,
+                                    fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(item?.artist?.ifBlank { "未填写歌手" } ?: "添加喜欢的歌曲",
+                                    color = cs.onSurfaceVariantSummary, fontSize = 13.sp,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                         TextButton("收起", onClick = { expanded = false })
                     }
-                    if (stream.duration > 0) {
-                        androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(20.dp)
-                            .pointerInput(stream.duration) {
-                                detectTapGestures { point ->
-                                    stream.seek((point.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f))
-                                }
-                            }) {
-                            val start = androidx.compose.ui.geometry.Offset(0f, size.height / 2)
-                            val end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2)
-                            drawLine(cs.outline.copy(alpha = 0.3f), start, end, 4.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
-                            val fraction = (stream.position.toFloat() / stream.duration).coerceIn(0f, 1f)
-                            drawLine(cs.primary, start, end.copy(x = size.width * fraction), 4.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
-                        }
-                        Text("${musicTime(stream.position)} / ${musicTime(stream.duration)}",
-                            fontSize = 11.sp, color = cs.onSurfaceVariantSummary)
+                    Text(stream.message, color = cs.onSurfaceVariantSummary, fontSize = 11.sp, maxLines = 2)
+                    // Reset gesture and animation state for each song.
+                    key(track?.id) {
+                        MusicSeekBar(stream.position, stream.duration, stream.playing, stream::seek)
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(if (stream.loading) "取消" else if (stream.playing) "暂停" else "播放",
-                            onClick = { if (url.isBlank()) edit = true else stream.toggle(url) })
-                        TextButton("选择音源", onClick = { edit = true })
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        MusicTransportButton("previous", "上一首", tracks.size > 1) { step(-1) }
+                        MusicTransportButton(if (stream.loading) "cancel" else if (stream.playing) "pause" else "play",
+                            if (stream.loading) "取消加载" else if (stream.playing) "暂停" else "播放", true) {
+                            val selected = track
+                            if (selected == null) { editingId = null; edit = true } else stream.toggle(selected.url)
+                        }
+                        MusicTransportButton("next", "下一首", tracks.size > 1) { step(1) }
+                        TextButton("歌单", onClick = { showQueue = true })
                     }
                 }
             }
@@ -250,31 +350,74 @@ fun BoxScope.HomeMusicPlayer(active: Boolean) {
             }
         }
     }
+    if (showQueue) Dialog(onDismissRequest = { showQueue = false }) {
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("我的歌单 · ${tracks.size}", color = cs.onSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                if (tracks.isEmpty()) Text("添加歌曲后，即可使用上一首和下一首。", color = cs.onSurfaceVariantSummary, fontSize = 13.sp)
+                tracks.forEachIndexed { index, item ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f).clickable {
+                            val old = tracks.indexOfFirst { it.id == track?.id }
+                            select(item, if (index >= old) 1 else -1)
+                            showQueue = false
+                        }.padding(vertical = 10.dp)) {
+                            Text((if (item.id == track?.id) "♪ " else "") + item.title,
+                                color = if (item.id == track?.id) cs.primary else cs.onSurface, fontSize = 15.sp)
+                            Text(item.artist.ifBlank { "未填写歌手" }, color = cs.onSurfaceVariantSummary, fontSize = 12.sp)
+                        }
+                        TextButton("编辑", onClick = { editingId = item.id; showQueue = false; edit = true })
+                    }
+                }
+                TextButton("添加歌曲", onClick = { editingId = null; showQueue = false; edit = true })
+                TextButton("关闭", onClick = { showQueue = false })
+            }
+        }
+    }
     if (edit) {
-        var draftUrl by remember { mutableStateOf(url) }
-        var draftTitle by remember { mutableStateOf(title) }
+        val original = tracks.firstOrNull { it.id == editingId }
+        var draftUrl by remember(editingId) { mutableStateOf(original?.url.orEmpty()) }
+        var draftTitle by remember(editingId) { mutableStateOf(original?.title.orEmpty()) }
+        var draftArtist by remember(editingId) { mutableStateOf(original?.artist.orEmpty()) }
         var error by remember { mutableStateOf("") }
         Dialog(onDismissRequest = { edit = false }) {
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("网络音源", color = cs.onSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text("填入 HTTPS 音频直链，例如 MP3、M4A。歌曲按需在线播放，不打包进安装包。",
-                        color = cs.onSurfaceVariantSummary, fontSize = 13.sp)
+                Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()).padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(if (original == null) "添加歌曲" else "编辑歌曲", color = cs.onSurface,
+                        fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(if (original?.url?.startsWith("asset:///") == true)
+                        "内置歌曲可直接离线播放，也可以修改歌名和歌手。" else
+                        "填写歌曲名称、歌手和可播放的 HTTPS 音频地址。", color = cs.onSurfaceVariantSummary, fontSize = 13.sp)
                     MusicInput(draftTitle, { draftTitle = it.take(80) }, "歌曲名称")
-                    MusicInput(draftUrl, { draftUrl = it.take(4096); error = "" }, "https://… 音频直链")
+                    MusicInput(draftArtist, { draftArtist = it.take(80) }, "歌手")
+                    if (original?.url?.startsWith("asset:///") != true)
+                        MusicInput(draftUrl, { draftUrl = it.take(4096); error = "" }, "https://… 音频地址")
                     if (error.isNotBlank()) Text(error, color = cs.error, fontSize = 12.sp)
+                    if (original != null) TextButton("从歌单移除", onClick = {
+                        val list = tracks.filterNot { it.id == original.id }
+                        if (track?.id == original.id) { stream.reset(); currentId = list.firstOrNull()?.id }
+                        tracks = list; persist(list, currentId); edit = false
+                    })
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton("取消", onClick = { edit = false })
                         TextButton("保存", onClick = {
                             val candidate = draftUrl.trim()
                             val uri = Uri.parse(candidate)
-                            if (uri.scheme != "https" || uri.host.isNullOrBlank() || !uri.userInfo.isNullOrBlank()) {
-                                error = "请填写有效的 HTTPS 音频直链"
+                            if (!(original != null && candidate == original.url && bundledTracks.any { it.url == candidate }) &&
+                                (uri.scheme != "https" || uri.host.isNullOrBlank() || !uri.userInfo.isNullOrBlank())) {
+                                error = "请填写有效的 HTTPS 音频地址"
+                            } else if (draftTitle.isBlank() || draftArtist.isBlank()) {
+                                error = "请填写歌名和歌手，以便正确显示"
                             } else {
-                                stream.reset()
-                                url = candidate
-                                title = draftTitle.trim().ifBlank { "我的音乐" }
-                                prefs.edit().putString("url", url).putString("title", title).apply()
+                                val item = HomeTrack(original?.id ?: UUID.randomUUID().toString(), candidate,
+                                    draftTitle.trim(), draftArtist.trim())
+                                val list = if (original == null) tracks + item else tracks.map { if (it.id == item.id) item else it }
+                                if (track == null) currentId = item.id
+                                if (track?.id == item.id && track.url != candidate) stream.reset()
+                                tracks = list
+                                persist(list, currentId ?: list.firstOrNull()?.id)
                                 edit = false
                             }
                         })
@@ -299,7 +442,3 @@ private fun MusicInput(value: String, onChange: (String) -> Unit, hint: String) 
         } })
 }
 
-private fun musicTime(milliseconds: Int): String {
-    val seconds = milliseconds.coerceAtLeast(0) / 1000
-    return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
-}
