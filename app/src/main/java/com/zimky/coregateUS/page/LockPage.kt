@@ -44,6 +44,7 @@ import com.zimky.coregateUS.ui.AnimatedGradientText
 import androidx.compose.runtime.LaunchedEffect
 import com.zimky.coregateUS.ui.HomeProfileHeader
 import com.zimky.coregateUS.ui.HomeAvatarOverlay
+import com.zimky.coregateUS.ui.HomeMusicPlayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -95,7 +96,8 @@ fun LockPage(
     onRefresh: () -> Unit,
     save: (CoreConfig, String?, ((Boolean, String) -> Unit)?) -> Unit,
     frozenCount: Int? = null,
-    onOpenFreeze: () -> Unit = {}
+    onOpenFreeze: () -> Unit = {},
+    active: Boolean = true
 ) {
     val cs = MiuixTheme.colorScheme
     val s = snapshot
@@ -364,6 +366,7 @@ fun LockPage(
     // 与滚动 Column 同级、排在它后面，因此天然覆盖在内容之上，
     // 且不参与 verticalScroll 的测量，滚动到哪儿都居中。
     HomeAvatarOverlay(homeScroll, avatarBounds, rootOrigin)
+    HomeMusicPlayer(active)
 
     pendingCore?.let { core ->
         CoreConfirmDialog(

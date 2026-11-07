@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import java.util.Calendar
+import java.time.LocalDate
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -56,10 +57,12 @@ fun HomeProfileHeader(onAvatarBounds: (Rect) -> Unit) {
     val cs = MiuixTheme.colorScheme
     val owner = LocalLifecycleOwner.current
     var hour by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) }
+    var today by remember { mutableStateOf(LocalDate.now()) }
     LaunchedEffect(owner) {
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
                 hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                today = LocalDate.now()
                 delay(30_000)
             }
         }
@@ -81,11 +84,13 @@ fun HomeProfileHeader(onAvatarBounds: (Rect) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("核心门控", modifier = Modifier.weight(1f), color = cs.onSurface,
                 fontSize = 30.sp, fontWeight = FontWeight.Bold)
-            Text(greeting, color = cs.onSurface, fontSize = 14.sp,
-                fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(greeting, color = cs.onSurface, fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text("运行概览与核心控制", color = cs.onSurfaceVariantSummary,
-            fontSize = 13.sp, lineHeight = 19.sp)
+        Text("每日一言 · ${today.monthValue}月${today.dayOfMonth}日", color = cs.primary,
+            fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+        Text(DailyQuote.forDate(today), color = cs.onSurfaceVariantSummary,
+            fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.fillMaxWidth())
     }
 }
 

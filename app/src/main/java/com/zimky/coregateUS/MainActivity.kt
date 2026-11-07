@@ -475,7 +475,8 @@ private fun AppRoot() {
                         onRefresh = { refresh(true) },
                         save = ::save,
                         frozenCount = frozenCount,
-                        onOpenFreeze = { subPage = SubPage.FREEZE }
+                        onOpenFreeze = { subPage = SubPage.FREEZE },
+                        active = currentTab == 0 && subPage == SubPage.NONE
                     )
                 }
                 PageSlot(visible = currentTab == 1) {
