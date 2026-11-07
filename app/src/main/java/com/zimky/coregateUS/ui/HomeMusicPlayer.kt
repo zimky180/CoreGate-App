@@ -205,6 +205,8 @@ private val bundledTracks = listOf(
     HomeTrack("builtin_a02", "asset:///music/a02.m4a", "左转灯", "派伟俊 & mac ova seas"),
     HomeTrack("builtin_a03", "asset:///music/a03.m4a", "迷失环境", "IN-K & 王忻辰"),
     HomeTrack("builtin_a04", "asset:///music/a04.m4a", "坏女孩", "徐良"),
+    HomeTrack("builtin_a05", "asset:///music/a05.m4a", "素颜", "许嵩 & 何曼婷"),
+    HomeTrack("builtin_a06", "asset:///music/a06.m4a", "后会无期", "徐良 & 汪苏泷"),
 )
 
 private fun readTracks(prefs: android.content.SharedPreferences): List<HomeTrack> {
@@ -228,8 +230,13 @@ fun BoxScope.HomeMusicPlayer() {
     val stream = remember(context) { HomeStream(context) }
     var tracks by remember {
         val saved = readTracks(prefs)
-        val initial = if (prefs.getBoolean("bundled_seeded_v1", false)) saved else
-            saved + bundledTracks.filter { built -> saved.none { it.id == built.id } }
+        val additions = when {
+            !prefs.getBoolean("bundled_seeded_v1", false) -> bundledTracks
+            !prefs.getBoolean("bundled_seeded_v2", false) -> bundledTracks.filter { it.id in setOf("builtin_a05", "builtin_a06") }
+            !prefs.getBoolean("bundled_seeded_v3", false) -> bundledTracks.filter { it.id == "builtin_a06" }
+            else -> emptyList()
+        }
+        val initial = saved + additions.filter { built -> saved.none { it.id == built.id } }
         mutableStateOf(initial)
     }
     var currentId by remember { mutableStateOf(prefs.getString("current_id", null)) }
@@ -250,9 +257,11 @@ fun BoxScope.HomeMusicPlayer() {
         prefs.edit().putString("tracks", array.toString()).putString("current_id", id).apply()
     }
     LaunchedEffect(Unit) {
-        if (!prefs.getBoolean("bundled_seeded_v1", false)) {
+        if (!prefs.getBoolean("bundled_seeded_v3", false)) {
             persist(tracks, currentId ?: tracks.firstOrNull()?.id)
-            prefs.edit().putBoolean("bundled_seeded_v1", true).apply()
+            prefs.edit().putBoolean("bundled_seeded_v1", true)
+                .putBoolean("bundled_seeded_v2", true)
+                .putBoolean("bundled_seeded_v3", true).apply()
         }
     }
     fun select(item: HomeTrack, step: Int) {
@@ -488,4 +497,3 @@ private fun MusicInput(value: String, onChange: (String) -> Unit, hint: String) 
             inner()
         } })
 }
-
