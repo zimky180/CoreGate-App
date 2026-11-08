@@ -1,5 +1,9 @@
 package com.zimky.coregateUS.page
 
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -64,7 +68,7 @@ import com.zimky.coregateUS.ui.SubText
 import com.zimky.coregateUS.ui.SwitchRow
 import com.zimky.coregateUS.ui.Toaster
 import top.yukonga.miuix.kmp.basic.Badge
-import top.yukonga.miuix.kmp.basic.Card
+import com.zimky.coregateUS.ui.LiquidCard as Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -88,10 +92,11 @@ fun PolicyPage(
     save: (CoreConfig, String?, ((Boolean, String) -> Unit)?) -> Unit,
     /** 冻结管理二级页里的「已冻结」数量快照，null 表示还没读到 */
     frozenCount: Int?,
-    onOpenFreeze: () -> Unit
+    onOpenFreeze: (Rect) -> Unit
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
+    var freezeOrigin by remember { mutableStateOf(Rect.Zero) }
     val cs = MiuixTheme.colorScheme
     val s = snapshot
     val daemonAlive = s?.daemonAlive == true
@@ -301,11 +306,14 @@ fun PolicyPage(
                 NavRow(
                     title = "冻结管理",
                     summary = freezeSummary,
-                    onClick = onOpenFreeze
+                    modifier = Modifier.onGloballyPositioned { freezeOrigin = it.boundsInRoot() },
+                    onClick = { onOpenFreeze(freezeOrigin) }
                 )
 
 
                 Gap(10.dp)
+                HintText("冻结管理仅适用于 ColorOS，其他厂商系统无效果。")
+                Gap(6.dp)
                 HintText("以上项默认关闭，改之前请先看清页面的说明。")
             }
         }

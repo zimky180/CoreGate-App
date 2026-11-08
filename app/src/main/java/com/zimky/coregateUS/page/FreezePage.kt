@@ -48,7 +48,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
+import com.zimky.coregateUS.ui.LiquidCard as Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -220,6 +220,8 @@ fun FreezePage(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(text = "冻结管理", color = cs.onSurface, fontSize = 17.sp)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(text = "仅限ColorOS系统日常限频", color = cs.onSurfaceVariantSummary, fontSize = 10.sp, maxLines = 1)
         }
 
         // ── 概览卡：一眼看出到底冻上了没 ─────────────────────────

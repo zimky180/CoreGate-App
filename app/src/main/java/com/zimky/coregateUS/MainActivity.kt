@@ -85,7 +85,7 @@ import com.zimky.coregateUS.ui.component.FloatingBottomBarItem
 import com.zimky.coregateUS.ui.theme.AppSettings
 import com.zimky.coregateUS.ui.theme.MiuixKernelSUTheme
 import kotlinx.coroutines.delay
-import top.yukonga.miuix.kmp.basic.Card
+import com.zimky.coregateUS.ui.LiquidCard as Card
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.drawBackdrop
@@ -107,15 +107,68 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *   3) 页面只负责显示，轮询统一在 Activity 层做，两条线不打架。
  */
 class MainActivity : ComponentActivity() {
+    private var introIconBounds: androidx.compose.ui.geometry.Rect? = null
+    private var systemIntroComplete by mutableStateOf(false)
+    private var introIconDrawn = false
+    private var introStartBounds by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+    private var introOverlayRemoved by mutableStateOf(false)
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // 系统启动画面交棒给 Compose，不叠加默认退出动画。
-        splashScreen.setOnExitAnimationListener { it.remove() }
+        val initialAppearance = AppSettings.load(this)
+        // Keep the actual system splash animation, then move its icon to the
+        // measured Compose icon bounds before starting the full-screen particles.
+        systemIntroComplete = savedInstanceState != null
+        splashScreen.setOnExitAnimationListener { splash ->
+            if (initialAppearance.skipStartupIntro) {
+                systemIntroComplete = true
+                introOverlayRemoved = true
+                splash.remove()
+                return@setOnExitAnimationListener
+            }
+            val icon = splash.iconView
+            val scale = runCatching {
+                android.provider.Settings.Global.getFloat(contentResolver,
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+            }.getOrDefault(1f).coerceAtLeast(0f)
+            val elapsed = splash.iconAnimationStart?.let {
+                java.time.Duration.between(it, java.time.Instant.now()).toMillis()
+            } ?: 680L
+            val remaining = if (scale == 0f || savedInstanceState != null) 0L
+                else ((splash.iconAnimationDuration?.toMillis() ?: 680L) * scale - elapsed).toLong().coerceIn(0L, 1200L)
+            splash.postDelayed({
+                if (icon != null && icon.width > 0 && icon.height > 0) {
+                    val location = IntArray(2)
+                    icon.getLocationOnScreen(location)
+                    introStartBounds = androidx.compose.ui.geometry.Rect(
+                        location[0].toFloat(), location[1].toFloat(),
+                        location[0] + icon.width.toFloat(), location[1] + icon.height.toFloat())
+                }
+                systemIntroComplete = true
+                // The application draws the same chip at the system icon's screen bounds.
+                // Remove the overlay only after that frame exists; all subsequent movement
+                // belongs to this single Compose image, including its final resting frame.
+                val deadline = android.os.SystemClock.uptimeMillis() + 500L
+                val finish = object : Runnable {
+                    override fun run() {
+                        if (introIconDrawn || android.os.SystemClock.uptimeMillis() >= deadline) {
+                            // The matching Compose frame is already drawn. Swap on this
+                            // vsync rather than holding the chip for an extra fade-out.
+                            introOverlayRemoved = true
+                            splash.remove()
+                        } else splash.postOnAnimation(this)
+                    }
+                }
+                splash.postOnAnimation(finish)
+            }, remaining)
+        }
+
         setContent {
-            var introVisible by rememberSaveable { mutableStateOf(savedInstanceState == null) }
-            var appearance by remember { mutableStateOf(AppSettings.load(this@MainActivity)) }
+            var introVisible by rememberSaveable { mutableStateOf(savedInstanceState == null && !initialAppearance.skipStartupIntro) }
+            var introMotionComplete by remember { mutableStateOf(savedInstanceState != null || initialAppearance.skipStartupIntro) }
+            var appearance by remember { mutableStateOf(initialAppearance) }
             val themeLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
             var oldThemeLayer by remember { mutableStateOf<androidx.compose.ui.graphics.layer.GraphicsLayer?>(null) }
             var themeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -128,8 +181,16 @@ class MainActivity : ComponentActivity() {
             Box(Modifier.fillMaxSize()) {
             CompositionLocalProvider(
                 LocalAppSettings provides appearance,
-                LocalSetAppSettings provides { next ->
+                LocalSetAppSettings provides updateAppearance@{ next ->
                     if (next != appearance) {
+                        val themeChanged = next.colorMode != appearance.colorMode ||
+                            next.keyColor != appearance.keyColor ||
+                            next.paletteStyle != appearance.paletteStyle || next.colorSpec != appearance.colorSpec
+                        if (!themeChanged) {
+                            appearance = next
+                            next.save(this@MainActivity)
+                            return@updateAppearance
+                        }
                         themeJob?.cancel()
                         // Freeze the last recorded frame during the color transition.
                         oldThemeLayer = themeLayer
@@ -152,7 +213,7 @@ class MainActivity : ComponentActivity() {
             MiuixKernelSUTheme(appSettings = appearance, startupActive = introVisible) {
                 // 开屏 root 门槛：拿不到 root 就根本进不来（拦截式，不是提醒式）。
                 // 放在主题内部，保证检测页与主界面共用同一套配色，不会闪一次白屏。
-                RootGate { AppRoot() }
+                if (introMotionComplete || !introVisible) RootGate { AppRoot() }
             }
             }
             }
@@ -161,7 +222,15 @@ class MainActivity : ComponentActivity() {
                     .drawWithContent { drawLayer(layer) })
             }
             if (introVisible) {
-                StartupIntro(onFinished = { introVisible = false })
+                StartupIntro(
+                    started = systemIntroComplete,
+                    moving = introOverlayRemoved,
+                    startBounds = introStartBounds,
+                    onIconBounds = { introIconBounds = it },
+                    onIconDrawn = { introIconDrawn = true },
+                    onMotionFinished = { introMotionComplete = true },
+                    onFinished = { introVisible = false }
+                )
             }
             }
         }
@@ -220,6 +289,7 @@ private fun AppRoot() {
 
     // 当前展开的二级页；SubPage.NONE 表示停在四栏主界面
     var subPage by rememberSaveable { mutableStateOf(SubPage.NONE) }
+    var subPageOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
 
     // 策略页要显示的「冻结了多少个」，由二级页与后台探测回报。
     // null = 还没探到（主页与策略页都会显示「还没探到」），0 是有效结果，不能和 null 混。
@@ -372,13 +442,13 @@ private fun AppRoot() {
         val intended = newCfg.copy(loaded = true)
         cfg = intended
         val cmd = CoreConfig.buildSaveCmd(newCfg, packages)
-        RootShell.exec(cmd) { code, out, err ->
+        RootShell.execSave(cmd) { code, out, err ->
             pendingSaves -= 1
             val ok = code == 0 && out.lineSequence().any { it.trim() == "OK" }
             if (ok) {
                 if (cfg == intended) cfg = intended
                 if (packages != null) packagesRaw = packages
-                main.postDelayed({ refresh(false) }, 400L)
+                refresh(false)
                 // 配置可能正好改了冻结分组，摘要要跟着变，否则策略页还停在旧数字上
                 main.postDelayed({ probeFreeze() }, 900L)
             }
@@ -476,7 +546,7 @@ private fun AppRoot() {
                         onRefresh = { refresh(true) },
                         save = ::save,
                         frozenCount = frozenCount,
-                        onOpenFreeze = { subPage = SubPage.FREEZE }
+                        onOpenFreeze = { origin -> subPageOrigin = origin; subPage = SubPage.FREEZE }
                     )
                 }
                 PageSlot(visible = currentTab == 1) {
@@ -488,7 +558,7 @@ private fun AppRoot() {
                         onRefresh = { refresh(true) },
                         save = ::save,
                         frozenCount = frozenCount,
-                        onOpenFreeze = { subPage = SubPage.FREEZE }
+                        onOpenFreeze = { origin -> subPageOrigin = origin; subPage = SubPage.FREEZE }
                     )
                 }
                 PageSlot(visible = currentTab == 2) {
@@ -506,11 +576,9 @@ private fun AppRoot() {
                 //   所以这里在 PageSlot 之外单独一层，用 zIndex(2f) 压住可见页（可见页是 1f）。
                 //
                 // 二级页同样铺满全屏，状态栏留白由页内滚动内容提供。
-                androidx.compose.animation.AnimatedVisibility(
+                com.zimky.coregateUS.ui.LiquidReveal(
                     visible = subPage != SubPage.NONE,
-                    enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) +
-                        androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(240)) { it / 8 },
-                    exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(140)),
+                    origin = subPageOrigin,
                     modifier = Modifier.zIndex(2f)
                 ) {
                     // 二级页必须是「完完全全的第二屏」。
@@ -534,8 +602,7 @@ private fun AppRoot() {
                                 indication = null
                             ) {}
                     ) {
-                        when (subPage) {
-                            SubPage.FREEZE -> FreezePage(
+                        FreezePage(
                                 cfg = cfg,
                                 sh = RootShell,
                                 onBack = { closeSubPage() },
@@ -545,7 +612,6 @@ private fun AppRoot() {
                                     loadConfig()
                                 }
                             )
-                        }
                     }
                 }
             }

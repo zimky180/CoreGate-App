@@ -2,6 +2,36 @@
 
 CoreGate 原生 Android 管理界面，作者 zimky。基于 Compose 与 Miuix，实现锁核状态、游戏策略、限频和冻结管理。具体策略由独立模块守护进程执行，关闭 App 后模块继续工作。
 
+## v2.3.5
+
+### APK 内容
+
+1. 歌单移除《甲乙丙丁》《左转灯》，升级后首次启动会自动清理旧音频资源。
+2. 后台播放暂停策略与音频焦点处理重写，切后台、来电、其他应用抢占焦点时行为可控。
+3. 强调色只改 keyColor，不再被动态取色覆盖，主题跟随度提高。
+4. 卡片支持多点独立动画，多指同时拖动互不干扰。
+5. Pro 用户标题改为「你好Pro用户」。
+6. 冻结页为单行渐变进行中状态，只作用于被操作项；冻结状态读取提速。
+7. 温度策略默认 40℃，可在 35～60℃ 调整，高温锁核与高温解封二选一，配置与逻辑写入 `service.sh`，关闭 App 后依然生效。
+8. 新增 `migrate-config.sh`：把旧配置中已删除功能的残留项迁移回默认配置，并保留 `config.json.pre-v230.bak` 备份。
+9. 导航选中胶囊、开关配色、保存按钮统一使用主题配色，修正浅色主题下叠黑与强制动态取色问题。
+10. 新增液态 UI 组件：`LiquidCard`、`CapillaryWaves`、`LiquidGravity`、`LiquidReveal`、`MusicDroplet`，以及配套 `cg_chip_*` / `cg_particle_*` 动画资源。
+
+### 模块 ZIP
+
+- `service.sh` 由单文件重构为入口 + 库：加载 `lib/config.sh`、`hardware.sh`、`freeze.sh`、`cores.sh`、`frequency.sh`、`probe.sh`、`runtime.sh`、`thermal.sh`、`lifecycle.sh`、`commands.sh`，入口处校验每个库是否存在，缺一即退出。
+- 库必须用 `.` 在入口进程内加载，不能作为子进程执行，否则状态与锁不共享。
+- 模块打包改由 `module/tools/package_module.py` 完成：白名单收集文件、对每个 `.sh` 执行 `sh -n` 语法检查、校验 `update.json` 与 `module.prop` 版本一致、校验 `bin/coregated` 为 AArch64 ELF64 并写 0755。
+- 新增 `module/daemon/` Rust 只读观察器源码与 `module/FREEZE-UPSTREAM.txt`。Rust 观察器当前仅为源码，锁核、限频、冻结、温度决策与退出恢复仍全部由 Shell 负责。
+
+### 版本与安装
+
+- 版本号 `versionCode 235` / `versionName "2.3.5"`，高于 v2.3.1 的 231，可直接覆盖升级。
+- 覆盖安装需签名一致，否则需先卸载旧版。
+- 默认配置只锁最高频的一个大核，其余功能默认关闭；重启后保留用户当前设置，不回落默认。
+- 所有改动都在 sysfs 运行时生效，不写任何系统分区，重启即还原。
+- 完全恢复原始状态：删除 `/data/adb/modules/CoreGate/` 与 `/data/adb/CoreGate/` 后重启。
+
 ## v2.3.1
 
 本次以 APK 界面与交互更新为主，同时发布包含冻结管理修复的模块 ZIP。请配套更新 APK 与模块。
@@ -31,14 +61,13 @@ CoreGate 原生 Android 管理界面，作者 zimky。基于 Compose 与 Miuix�
 - 当前仍以一加 Ace 6T / 骁龙 8 Gen 5 为主要适配对象。
 - 自定义限频历史反馈仍待完整真机复验，本次未将其列为已修复问题。
 
-
 ## 下载与源码
 
 - APK 下载：[本仓库 Releases](https://github.com/zimky180/CoreGate-App/releases)
 - 模块 ZIP 与开源仓库：[zimky180/CoreGate](https://github.com/zimky180/CoreGate)
 - 模块 ZIP 下载：[模块 Releases](https://github.com/zimky180/CoreGate/releases)
 
-Android 13（API 33）及以上，需要 root 与配套模块。当前 v2.3.1 仍以骁龙 8 Gen 5 / 一加 Ace 6T 为适配和验证重点，不宣称支持所有设备。
+Android 13（API 33）及以上，需要 root 与配套模块。当前 v2.3.5 仍以骁龙 8 Gen 5 / 一加 Ace 6T 为适配和验证重点，不宣称支持所有设备。
 
 ## v2.3.0
 

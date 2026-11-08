@@ -75,7 +75,7 @@ import com.zimky.coregateUS.ui.SwitchRow
 import com.zimky.coregateUS.ui.Toaster
 import top.yukonga.miuix.kmp.basic.Badge
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
+import com.zimky.coregateUS.ui.LiquidCard as Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -228,13 +228,22 @@ fun SettingsPage(
                 AppearancePills(accents.map { it.first },
                     accents.indexOfFirst { it.second == appearance.keyColor }.coerceAtLeast(0)) { index ->
                     val keyColor = accents[index].second
-                    val mode = if (keyColor != 0) ColorMode.MONET_SYSTEM else when (appearance.colorMode) {
-                        ColorMode.MONET_LIGHT -> ColorMode.LIGHT
-                        ColorMode.MONET_DARK, ColorMode.DARK_AMOLED -> ColorMode.DARK
-                        ColorMode.MONET_SYSTEM -> ColorMode.SYSTEM
-                        else -> appearance.colorMode
-                    }
-                    setAppearance(appearance.copy(colorMode = mode, keyColor = keyColor))
+                    setAppearance(appearance.copy(keyColor = keyColor))
+                }
+                SwitchRow(title = "重力光晕", desc = "光晕随手机倾斜漂移；传感器不可用时自动飘动。") {
+                    Switch(checked = appearance.gravityGlow, onCheckedChange = {
+                        setAppearance(appearance.copy(gravityGlow = it))
+                    }, colors = switchColors())
+                }
+                SwitchRow(title = "水中涟漪", desc = "卡片触摸与音乐面板展开、收起时显示水波效果。") {
+                    Switch(checked = appearance.waterRipples, onCheckedChange = {
+                        setAppearance(appearance.copy(waterRipples = it))
+                    }, colors = switchColors())
+                }
+                SwitchRow(title = "直接跳过开屏动画", desc = "开启后，下次启动直接进入应用。") {
+                    Switch(checked = appearance.skipStartupIntro, onCheckedChange = {
+                        setAppearance(appearance.copy(skipStartupIntro = it))
+                    }, colors = switchColors())
                 }
             }
         }
@@ -266,13 +275,9 @@ fun SettingsPage(
                         checked = cfg.enabled,
                         onCheckedChange = { on ->
                             save(cfg.copy(enabled = on), null) { ok, msg ->
-                                if (ok) {
-                                    Toaster.show(if (on) "CoreGate 已启用" else "CoreGate 已停用")
-                                    onRefresh()
-                                } else {
-                                    Toaster.show("保存失败：$msg", true)
-                                }
+                                if (ok) onRefresh() else Toaster.show("保存失败：$msg", true)
                             }
+                            Toaster.show(if (on) "CoreGate 正在启用" else "CoreGate 正在停用")
                         },
                         colors = switchColors()
                     )
@@ -412,14 +417,10 @@ fun SettingsPage(
                                     text = "保存名单",
                                     onClick = {
                                         save(cfg, listText) { ok, msg ->
-                                            if (ok) {
-                                                listDirty = false
-                                                Toaster.show("名单已保存")
-                                                onRefresh()
-                                            } else {
-                                                Toaster.show("保存失败：$msg", true)
-                                            }
+                                            if (ok) { listDirty = false; onRefresh() }
+                                            else Toaster.show("保存失败：$msg", true)
                                         }
+                                        Toaster.show("名单保存中")
                                     },
                                     colors = ButtonDefaults.textButtonColorsPrimary()
                                 )

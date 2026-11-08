@@ -77,7 +77,7 @@ import com.zimky.coregateUS.ui.SubText
 import com.zimky.coregateUS.ui.SwitchRow
 import com.zimky.coregateUS.ui.Toaster
 import top.yukonga.miuix.kmp.basic.Badge
-import top.yukonga.miuix.kmp.basic.Card
+import com.zimky.coregateUS.ui.LiquidCard as Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -146,7 +146,7 @@ fun FreqPage(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
 
-        PageHeading("日常限频", "调整目标档位，查看实际状态")
+        PageHeading("日常限频", "调整目标档位，查看实际状态", trailing = "无法保证所有机型有效")
 
         // ── 卡片一：限频开关 ─────────────────────────────────────────
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -303,7 +303,7 @@ fun FreqPage(
             }
         }
 
-        SectionHeading("生效检查", "对照目标与设备实际上限")
+        SectionHeading("生效检查", "限频不能百分百保证生效；对照目标与设备实际上限")
 
         // ── 卡片二：限频实况 ─────────────────────────────────────────
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -489,6 +489,7 @@ private fun FreqSliderRow(
 /** 连续跟手绘制，数值映射真实档位；松手吸附并只提交一次。 */
 @Composable
 private fun MiuixSlider(
+
     name: String,
     index: Int,
     maxIndex: Int,

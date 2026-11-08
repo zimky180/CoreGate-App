@@ -21,9 +21,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -103,11 +106,22 @@ private class IntroArtwork {
 
 /** Chip wake-up → precise word assembly → light collapse → black → app. */
 @Composable
-fun StartupIntro(onFinished: () -> Unit) {
+fun StartupIntro(
+    started: Boolean = true,
+    moving: Boolean = true,
+    startBounds: androidx.compose.ui.geometry.Rect? = null,
+    onIconBounds: (androidx.compose.ui.geometry.Rect) -> Unit = {},
+    onIconDrawn: () -> Unit = {},
+    onMotionFinished: () -> Unit = {},
+    onFinished: () -> Unit
+) {
     val clock = remember { Animatable(0f) }
+    val handoff = remember { Animatable(0f) }
+    var iconBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     val owner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val currentFinished by rememberUpdatedState(onFinished)
+    val currentMotionFinished by rememberUpdatedState(onMotionFinished)
     val artwork = remember { IntroArtwork() }
     val duration = remember(context) {
         val scale = runCatching {
@@ -116,21 +130,26 @@ fun StartupIntro(onFinished: () -> Unit) {
         }.getOrDefault(1f)
         if (scale == 0f) 0 else 2600
     }
-    LaunchedEffect(owner, duration) {
+    LaunchedEffect(owner, duration, started, moving) {
+        if (!started || !moving) return@LaunchedEffect
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            handoff.animateTo(1f, tween(if (duration == 0) 0 else 480,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            currentMotionFinished()
             val remaining = ((1f - clock.value) * duration).toInt().coerceAtLeast(0)
             clock.animateTo(1f, tween(remaining, easing = LinearEasing))
             currentFinished()
             kotlinx.coroutines.awaitCancellation()
         }
     }
-    BackHandler { currentFinished() }
-    val t = clock.value
-    val reveal = phase(t, 0.84f, 1f)
-    val light = 1f - phase(t, 0.68f, 0.80f)
-    val iconIn = phase(t, 0.06f, 0.24f)
+    val finishIntro = {
+        currentMotionFinished()
+        currentFinished()
+    }
+    BackHandler { finishIntro() }
+    val iconIn = if (started) 1f else 0f
     Box(
-        Modifier.fillMaxSize().graphicsLayer { alpha = 1f - reveal }
+        Modifier.fillMaxSize().graphicsLayer { alpha = 1f - phase(clock.value, 0.84f, 1f) }
             .background(Color.Black)
             .semantics { contentDescription = "CoreGate 启动动画" }
             .pointerInput(Unit) {
@@ -143,7 +162,8 @@ fun StartupIntro(onFinished: () -> Unit) {
             },
         contentAlignment = Alignment.Center
     ) {
-        Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = light }) {
+        Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - phase(clock.value, 0.68f, 0.80f) }) {
+            val t = clock.value
             val center = Offset(size.width / 2f, size.height / 2f - 50.dp.toPx())
             val breath = phase(t, 0.02f, 0.36f)
             drawRect(Brush.radialGradient(
@@ -161,24 +181,40 @@ fun StartupIntro(onFinished: () -> Unit) {
         }
         Column(
             Modifier.fillMaxWidth().graphicsLayer {
-                alpha = light
-                val settle = phase(t, 0f, 0.28f)
-                translationY = (1f - settle) * 7.dp.toPx()
-                scaleX = 0.97f + settle * 0.03f
-                scaleY = scaleX
+                alpha = 1f - phase(clock.value, 0.68f, 0.80f)
+                // Geometry matches the system icon at the handoff frame.
             },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(Modifier.size(140.dp)) {
+            Box(Modifier.size(140.dp).onGloballyPositioned { coordinates ->
+                val origin = coordinates.positionOnScreen()
+                val measured = androidx.compose.ui.geometry.Rect(origin,
+                    androidx.compose.ui.geometry.Size(coordinates.size.width.toFloat(),
+                        coordinates.size.height.toFloat()))
+                iconBounds = measured
+                onIconBounds(measured)
+            }) {
                 Box(Modifier.fillMaxSize().graphicsLayer {
                     alpha = iconIn
-                    scaleX = 0.94f + iconIn * 0.06f
-                    scaleY = scaleX
+                    val target = iconBounds
+                    val source = startBounds
+                    val remaining = 1f - handoff.value
+                    if (target != null && source != null && target.width > 0f && target.height > 0f) {
+                        translationX = (source.center.x - target.center.x) * remaining
+                        translationY = (source.center.y - target.center.y) * remaining
+                        scaleX = 1f + (source.width / target.width - 1f) * remaining
+                        scaleY = 1f + (source.height / target.height - 1f) * remaining
+                    }
                 }) {
-                    Image(painterResource(R.drawable.ic_launcher_background), null, Modifier.fillMaxSize())
-                    Image(painterResource(R.drawable.ic_launcher_foreground), "CoreGate 图标", Modifier.fillMaxSize())
+                    // Black system splash and transparent foreground share the same artwork.
+                    Image(painterResource(R.drawable.ic_launcher_foreground), "CoreGate 图标",
+                        Modifier.fillMaxSize().drawWithContent {
+                            drawContent()
+                            if (started) onIconDrawn()
+                        })
                 }
                 Canvas(Modifier.fillMaxSize()) {
+                    val t = clock.value
                     val sweep = phase(t, 0f, 0.29f)
                     val fade = phase(t, 0f, 0.035f) * (1f - phase(t, 0.27f, 0.40f))
                     artwork.segment.reset()
@@ -204,6 +240,7 @@ fun StartupIntro(onFinished: () -> Unit) {
             }
             Spacer(Modifier.height(12.dp))
             Canvas(Modifier.widthIn(max = 360.dp).fillMaxWidth(0.88f).height(76.dp)) {
+                val t = clock.value
                 val scale = size.width / 680f
                 val top = (size.height - 120f * scale) / 2f
                 val assembly = phase(t, 0.12f, 0.49f)
@@ -242,7 +279,7 @@ fun StartupIntro(onFinished: () -> Unit) {
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
                     .graphicsLayer {
-                        alpha = phase(t, 0.44f, 0.58f)
+                        alpha = phase(clock.value, 0.44f, 0.58f)
                     },
                 color = Color(0xFFECFFF6).copy(alpha = 0.65f),
                 fontSize = 13.sp,

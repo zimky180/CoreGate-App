@@ -1,6 +1,9 @@
 package com.zimky.coregateUS.page
 
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
@@ -58,7 +61,7 @@ import com.zimky.coregateUS.ui.PAGE_BOTTOM_INSET
 import com.zimky.coregateUS.ui.Semantic
 import com.zimky.coregateUS.ui.Toaster
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
+import com.zimky.coregateUS.ui.LiquidCard as Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -94,8 +97,9 @@ fun LockPage(
     onRefresh: () -> Unit,
     save: (CoreConfig, String?, ((Boolean, String) -> Unit)?) -> Unit,
     frozenCount: Int? = null,
-    onOpenFreeze: () -> Unit = {}
+    onOpenFreeze: (Rect) -> Unit = {}
 ) {
+    var freezeOrigin by remember { mutableStateOf(Rect.Zero) }
     val cs = MiuixTheme.colorScheme
     val s = snapshot
     val daemonAlive = s?.daemonAlive == true
@@ -144,6 +148,14 @@ fun LockPage(
         val pairing = com.zimky.coregateUS.core.VersionPairing.evaluate(
             s?.svcState, s?.moduleVersion, s?.moduleVersionCode
         )
+        val isProModule = s?.moduleVersion?.contains("pro", ignoreCase = true) == true
+        if (s?.svcState == true) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AnimatedGradientText(if (isProModule) "你好！尊贵的pro用户" else "你好！骁龙8gen5机主", cs.error)
+                }
+            }
+        }
         if (pairing == com.zimky.coregateUS.core.VersionPairing.Status.MISMATCH) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -171,7 +183,6 @@ fun LockPage(
             tween(300), label = "homeStateColor")
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier
-                .background(Brush.verticalGradient(listOf(stateColor.copy(alpha = 0.07f), Color.Transparent)))
                 .padding(horizontal = 20.dp, vertical = 22.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween) {
@@ -315,7 +326,8 @@ fun LockPage(
                         0 -> "当前没有冻结任何服务"
                         else -> "已冻结 $frozenCount 个服务"
                     },
-                    onClick = onOpenFreeze
+                    modifier = Modifier.onGloballyPositioned { freezeOrigin = it.boundsInRoot() },
+                    onClick = { onOpenFreeze(freezeOrigin) }
                 )
             }
         }
@@ -411,6 +423,7 @@ fun LockPage(
 /** 柔和状态胶囊，文字保持稳定可读。 */
 @Composable
 private fun StateBadge(text: String, color: Color) {
+    var freezeOrigin by remember { mutableStateOf(Rect.Zero) }
     val cs = MiuixTheme.colorScheme
     Row(Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(50.dp))
         .background(color.copy(alpha = 0.10f))

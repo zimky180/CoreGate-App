@@ -79,41 +79,34 @@ jobs:
           APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
           echo "Found APK: $APK"
           mkdir -p out
-          cp "$APK" "out/CoreGate-APK-debug-v2.3.1.apk"
+          cp "$APK" "out/CoreGate-APK-debug-v2.3.5.apk"
           RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
           test -n "$RELEASE_APK"
-          cp "$RELEASE_APK" "out/CoreGate-APK-release-v2.3.1-unsigned.apk"
+          cp "$RELEASE_APK" "out/CoreGate-APK-release-v2.3.5-unsigned.apk"
           ls -l out
       - name: Package module
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          from zipfile import ZipFile, ZIP_DEFLATED
-          with ZipFile('out/CoreGate-v2.3.1.zip', 'w', ZIP_DEFLATED) as z:
-              for f in sorted(Path('module').iterdir()):
-                  if f.is_file():
-                      z.write(f, f.name)
-          PY
+          python3 module/tools/package_module.py --source module --output out
 
       - name: Upload module
         uses: actions/upload-artifact@v4
         with:
-          name: CoreGate-module-v2.3.1
-          path: out/CoreGate-v2.3.1.zip
+          name: CoreGate-module-v2.3.5
+          path: out/CoreGate-v2.3.5.zip
           if-no-files-found: error
 
       - name: Upload APK
 
         uses: actions/upload-artifact@v4
         with:
-          name: CoreGate-APK-debug-v2.3.1
-          path: out/CoreGate-APK-debug-v2.3.1.apk
+          name: CoreGate-APK-debug-v2.3.5
+          path: out/CoreGate-APK-debug-v2.3.5.apk
           if-no-files-found: error
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: CoreGate-APK-release-v2.3.1-unsigned
-          path: out/CoreGate-APK-release-v2.3.1-unsigned.apk
+          name: CoreGate-APK-release-v2.3.5-unsigned
+          path: out/CoreGate-APK-release-v2.3.5-unsigned.apk
           if-no-files-found: error
 
       - name: Write build provenance
@@ -122,7 +115,7 @@ jobs:
           from pathlib import Path
           import os, json, hashlib
           out = Path('out')
-          info = {'source_commit': os.environ['GITHUB_SHA'], 'repository': os.environ['GITHUB_REPOSITORY'], 'run_url': 'https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID'], 'version': '2.3.1', 'release_minified': True, 'release_signed': False, 'debug_minified': False}
+          info = {'source_commit': os.environ['GITHUB_SHA'], 'repository': os.environ['GITHUB_REPOSITORY'], 'run_url': 'https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID'], 'version': '2.3.5', 'release_minified': True, 'release_signed': False, 'debug_minified': False}
           (out / 'BUILD_INFO.json').write_text(json.dumps(info, indent=2) + '\n')
           files = sorted(p for p in out.iterdir() if p.is_file())
           (out / 'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in files))
@@ -130,7 +123,7 @@ jobs:
       - name: Upload provenance
         uses: actions/upload-artifact@v4
         with:
-          name: CoreGate-build-provenance-v2.3.1
+          name: CoreGate-build-provenance-v2.3.5
           path: |
             out/BUILD_INFO.json
             out/SHA256SUMS.txt
@@ -138,6 +131,6 @@ jobs:
       - name: Upload R8 mapping
         uses: actions/upload-artifact@v4
         with:
-          name: CoreGate-R8-mapping-v2.3.1
+          name: CoreGate-R8-mapping-v2.3.5
           path: app/build/outputs/mapping/release/
           if-no-files-found: error

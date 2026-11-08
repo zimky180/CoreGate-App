@@ -16,13 +16,19 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 一级页内容标题，沿用 Miuix 主题与文字组件。 */
 @Composable
-fun PageHeading(title: String, summary: String) {
+fun PageHeading(title: String, summary: String, trailing: String? = null) {
     val cs = MiuixTheme.colorScheme
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(text = title, color = cs.onSurface, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(text = title, color = cs.onSurface, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            if (trailing != null) {
+                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                Text(text = trailing, color = cs.onSurfaceVariantSummary, fontSize = 11.sp)
+            }
+        }
         Text(text = summary, color = cs.onSurfaceVariantSummary, fontSize = 13.sp, lineHeight = 19.sp)
     }
 }
