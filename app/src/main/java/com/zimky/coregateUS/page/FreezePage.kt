@@ -221,7 +221,7 @@ fun FreezePage(
             Spacer(modifier = Modifier.width(4.dp))
             Text(text = "冻结管理", color = cs.onSurface, fontSize = 17.sp)
             Spacer(modifier = Modifier.width(6.dp))
-            Text(text = "仅限ColorOS系统日常限频", color = cs.onSurfaceVariantSummary, fontSize = 10.sp, maxLines = 1)
+            Text(text = "仅限ColorOS系统", color = cs.onSurfaceVariantSummary, fontSize = 10.sp, maxLines = 1)
         }
 
         // ── 概览卡：一眼看出到底冻上了没 ─────────────────────────

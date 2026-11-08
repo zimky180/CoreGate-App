@@ -302,6 +302,10 @@ private fun AppRoot() {
     var alive by remember { mutableStateOf(true) }
     var configRevision by remember { mutableStateOf(0L) }
     var pendingSaves by remember { mutableStateOf(0) }
+    // 最近一次「真正写盘成功」的配置指纹：内容完全相同的保存直接短路，
+    // 不再排进 RootShell 串行队列。滑杆松手、重复点击等无实质变化的提交
+    // 会因此被吞掉，避免多次 su 写盘排队后回调集中到达造成「延迟爆发」。
+    var lastSavedFingerprint by remember { mutableStateOf<String?>(null) }
     var freezeProbeRunning by remember { mutableStateOf(false) }
     var configLoading by remember { mutableStateOf(false) }
     var lastFreezeProbeAt by remember { mutableStateOf(0L) }
@@ -386,6 +390,8 @@ private fun AppRoot() {
             if (revision == configRevision && pendingSaves == 0 && c.loaded) {
                 cfg = c
                 packagesRaw = pkgs
+                // 从磁盘读回后同步指纹：避免之后本应落盘的保存被误判为「内容没变」。
+                lastSavedFingerprint = runCatching { c.copy(loaded = true).toJsonString() }.getOrNull()
             }
             refresh(false)
             probeFreeze()
@@ -436,16 +442,23 @@ private fun AppRoot() {
             com.zimky.coregateUS.ui.Toaster.show("配置未读取，已阻止覆盖保存", true)
             return
         }
+        val cfgFingerprint = newCfg.copy(loaded = true).toJsonString()
+        val cmd = CoreConfig.buildSaveCmd(newCfg, packages)
+        // 配置内容没变、且这次也不涉及 packages 改动时，直接当成功回调，省掉一次 su 往返。
+        if (packages == null && cfgFingerprint == lastSavedFingerprint) {
+            done?.invoke(true, "OK")
+            return
+        }
         configRevision += 1
         pendingSaves += 1
         val previousCfg = cfg
         val intended = newCfg.copy(loaded = true)
         cfg = intended
-        val cmd = CoreConfig.buildSaveCmd(newCfg, packages)
         RootShell.execSave(cmd) { code, out, err ->
             pendingSaves -= 1
             val ok = code == 0 && out.lineSequence().any { it.trim() == "OK" }
             if (ok) {
+                lastSavedFingerprint = cfgFingerprint
                 if (cfg == intended) cfg = intended
                 if (packages != null) packagesRaw = packages
                 refresh(false)

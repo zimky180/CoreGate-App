@@ -44,7 +44,9 @@ internal val contributorProfiles = listOf(
     AuthorProfile("ideas-chenyang", "晨阳", "思路贡献 · 限频方案\n分享限频思路，为 CoreGate 的限频方案完善提供参考。",
         qq = "2137315028", avatarRes = R.drawable.contributor_chenyang),
     AuthorProfile("ideas-jiegantian", "节甘天baby", "思路贡献 · 限频方案\n分享限频思路，为 CoreGate 的限频方案完善提供参考。",
-        qq = "3565733924", avatarRes = R.drawable.contributor_jiegantian)
+        qq = "3565733924", avatarRes = R.drawable.contributor_jiegantian),
+    AuthorProfile("feedback-babiz", "巴闭Z", "问题反馈 · 版本一致性\n发现并反馈 APK 版本号与界面显示版本不一致的问题，帮助项目修正版本标识，保证发布产物与显示内容一致。",
+        qq = "1602286598", avatarRes = R.drawable.contributor_babiz)
 )
 
 @Composable

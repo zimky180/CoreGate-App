@@ -500,6 +500,8 @@ private fun MiuixSlider(
     var widthPx by remember { mutableIntStateOf(0) }
     var dragging by remember { mutableStateOf(false) }
     var startIndex by remember { mutableIntStateOf(index) }
+    // 本次交互（点击或拖动）开始前的档位，用于判断松手时是否真的发生了净变化。
+    var beginIndex by remember { mutableIntStateOf(index) }
     var position by remember(maxIndex) {
         mutableFloatStateOf(if (maxIndex > 0) index.toFloat() / maxIndex else 0f)
     }
@@ -529,8 +531,14 @@ private fun MiuixSlider(
         if (maxIndex <= 0) return
         val selected = (position * maxIndex).roundToInt().coerceIn(0, maxIndex)
         position = selected.toFloat() / maxIndex
+        // 基准取「本次交互开始前的档位」：拖动时是 onDragStart 记录的 startIndex，
+        // 点击时 startIndex 未被刷新（仍是上次交互前的值），因此统一改用 beginIndex。
+        val base = beginIndex
         dragging = false
-        latestCommit(selected)
+        // 只有真正改变了档位才提交保存：
+        // 单纯点击原档位/拖动后拖回原位（净位移为 0）不应触发写盘与吐司，
+        // 否则连续操作会在 RootShell 串行队列里堆积多次保存，回调集中到达形成"延迟爆发"。
+        if (selected != base) latestCommit(selected)
     }
 
     Canvas(
@@ -557,17 +565,21 @@ private fun MiuixSlider(
                 }
             }
             .pointerInput(maxIndex, widthPx, knobRadius) {
-                detectTapGestures { offset ->
-                    if (maxIndex > 0) {
-                        pick(offset.x)
-                        finish()
+                detectTapGestures(
+                    onPress = { beginIndex = latestIndex },
+                    onTap = { offset ->
+                        if (maxIndex > 0) {
+                            pick(offset.x)
+                            finish()
+                        }
                     }
-                }
+                )
             }
             .pointerInput(maxIndex, widthPx, knobRadius) {
                 detectHorizontalDragGestures(
                     onDragStart = { offset ->
                         startIndex = latestIndex
+                        beginIndex = latestIndex
                         dragging = true
                         pick(offset.x)
                     },
