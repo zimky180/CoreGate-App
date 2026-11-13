@@ -25,7 +25,7 @@ App 的自动更新入口为 **CoreGate-App**；模块更新入口为 **CoreGate
 ## 安装与恢复
 
 1. 从 Releases 下载模块 ZIP，在模块管理器安装并按提示重启。
-2. 下载带 debug 后缀的已签名 APK 安装。release-unsigned APK 需要自行签名，不能直接安装。
+2. 从 App 发布页下载 APK 安装。
 3. 正常升级保留用户配置。模块不需要 App 常驻；App 提供配置、状态和操作入口。
 4. 出现异常：管理器禁用模块，或创建 `/data/adb/modules/CoreGate/disable` 后重启。
 5. 无法启动：Recovery 删除 `/data/adb/modules/CoreGate`；彻底重置时再删除 `/data/adb/CoreGate` 后重启。
@@ -65,7 +65,7 @@ cd module
 python3 tools/package_module.py --source . --output ../out
 ```
 
-GitHub Actions 可在 Actions 页面手动运行；ci-build 分支推送也会触发。工程未配置发布私钥，assembleRelease 产物未签名。
+GitHub Actions 可在 Actions 页面手动运行；ci-build 分支推送也会触发。
 
 ## 贡献者
 
