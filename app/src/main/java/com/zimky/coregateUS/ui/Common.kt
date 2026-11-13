@@ -66,29 +66,29 @@ val PAGE_BOTTOM_INSET: Dp = 104.dp
  * 视觉规范全部取自 Miuix 主题（[MiuixTheme.colorScheme]），不自建整套色板：
  * 主色 primary、异常 error、正文 onSurface、次要 onSurfaceVariantSummary、分割线 outline。
  *
- * 唯一的例外是 [Semantic]：核心频率需要「低频绿 / 中频蓝 / 高频橙」这种与功耗语义绑定的
- * 颜色，Miuix 主题色板里没有对应项，故保留五个固定值（且与 KernelSU 的强调色一致）。
+ * 唯一的例外是 [Semantic]：核心方块需要「在线 / 离线 / 被策略封禁」这种与设备状态绑定的
+ * 固定配色，Miuix 主题色板里没有对应项，故保留五个固定值（且与 KernelSU 的强调色一致）。
  */
 
-/** 语义色：只保留频率/状态语义必需的几项，其余一律走 MiuixTheme.colorScheme。 */
+/** 语义色：只保留状态语义必需的几项，其余一律走 MiuixTheme.colorScheme。 */
 object Semantic {
     /** 正常 / 低频省电 */
     val OK = Color(0xFF34C759)
 
-    /** 强调 / 中频 / 全核在线 */
+    /** 强调 / 在线（在线核心统一用它） */
     val ACC = Color(0xFF0A84FF)
 
     /** 警告 / 高频大核（优先封锁对象） */
     val WARN = Color(0xFFFF9F0A)
 
-    /** 错误 */
+    /** 错误 / 被策略封禁 */
     val ERR = Color(0xFFFF453A)
 
-    /** 离线 / 灰 */
+    /** 离线 / 熄灯 */
     val OFF = Color(0xFF8E8E93)
 }
 
-/** 单个核心方块，颜色由调用方按频率语义给出（离线 = 灰 · 低频绿 · 中频蓝 · 高频橙）。 */
+/** 单个核心方块，颜色由调用方按状态语义给出（在线 = 蓝 · 离线 = 灰灭 · 被策略控制 = 正常色）。 */
 @Composable
 fun CoreCell(
     id: Int,
@@ -98,18 +98,30 @@ fun CoreCell(
     modifier: Modifier = Modifier,
     /** 非 null 时整块可点：首页用它实现「点一下封禁 / 再点一下解冻」。 */
     onClick: (() -> Unit)? = null,
-    processing: Boolean = false
+    processing: Boolean = false,
+    /** V2.4.1：被策略（游戏保持锁核 / 温度策略）封禁时传 true，无障碍描述改措辞。 */
+    banned: Boolean = false
 ) {
     val cs = MiuixTheme.colorScheme
+    // V2.4.2 回退：撤掉 V2.4.1「活着 = 亮，死了 = 关灯」的压暗处理。
+    //   在线 → 正常底色 + 描边（亮着）
+    //   离线 → 保持常规浅底 + 常规灰色描边（不再压暗成一片黑）
+    //   被策略控制 → V2.4.7 起不再传红色，与普通在线一致，仅文案区分
+    // 注意：不能用 copy(alpha = 0f) 把描边透明掉，Compose 的 animateColorAsState
+    // 在 alpha=0 时会退化成透明黑，过渡中途会看到一格灰边闪一下。
     val cellBg by animateColorAsState(
-        if (online) androidx.compose.ui.graphics.lerp(cs.surfaceContainerHigh, color, 0.09f)
-        else cs.surfaceContainerHigh, tween(280), label = "coreBackground")
+        if (banned) androidx.compose.ui.graphics.lerp(cs.surfaceContainerHigh, Semantic.ERR, 0.18f)
+        else if (online) androidx.compose.ui.graphics.lerp(cs.surfaceContainerHigh, color, 0.09f)
+        else cs.surfaceContainerHigh,
+        tween(280), label = "coreBackground")
     val cellBorder by animateColorAsState(
         if (processing) cs.primary.copy(alpha = 0.65f)
+        else if (banned) Semantic.ERR.copy(alpha = 0.85f)
         else if (online) color.copy(alpha = 0.22f) else cs.outline.copy(alpha = 0.35f),
         tween(280), label = "coreBorder")
     val foreground by animateColorAsState(
-        if (online) androidx.compose.ui.graphics.lerp(cs.onSurface, color, 0.45f)
+        if (banned) Semantic.ERR
+        else if (online) androidx.compose.ui.graphics.lerp(cs.onSurface, color, 0.45f)
         else cs.onSurfaceVariantSummary, tween(280), label = "coreForeground")
     val cellPress = remember { MutableInteractionSource() }
     val pressed by cellPress.collectIsPressedAsState()
@@ -117,7 +129,16 @@ fun CoreCell(
     Column(
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .semantics { stateDescription = if (processing) "处理中" else if (online) "在线，$freqText" else "离线" }
+            .semantics {
+                stateDescription = when {
+                    processing -> "处理中"
+                    // V2.4.1：策略封禁的核虽然物理上离线，但对用户来说是「被模块按下去的」，
+                    // 无障碍播报要区分开，否则读屏会把它和普通离线混为一谈。
+                    banned -> "被策略控制"
+                    online -> "在线，$freqText"
+                    else -> "离线"
+                }
+            }
             .defaultMinSize(minHeight = 78.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(cellBg)
@@ -274,7 +295,7 @@ fun KeyValueRow(name: String, value: String, gradientValue: Boolean = false) {
         Text(text = name, color = cs.onSurfaceVariantSummary, fontSize = 12.5.sp)
         Spacer(Modifier.width(12.dp))
         Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
-            if (gradientValue) AnimatedGradientText(value, fontSize = 12.5.sp)
+            if (gradientValue) AnimatedGradientText(value, color = if (listOf("未找到", "未运行", "不可用", "已死亡", "缺失", "失败", "未授权", "未就绪").any { value.contains(it) }) cs.error else cs.primary, fontSize = 12.5.sp)
             else Text(text = value, color = cs.onSurface, fontSize = 12.5.sp)
         }
     }

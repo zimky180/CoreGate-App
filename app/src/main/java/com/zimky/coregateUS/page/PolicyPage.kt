@@ -1,5 +1,8 @@
 package com.zimky.coregateUS.page
 
+import com.zimky.coregateUS.ui.component.FloatingBottomBar
+import com.zimky.coregateUS.ui.component.FloatingBottomBarItem
+import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -11,6 +14,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -97,7 +101,10 @@ fun PolicyPage(
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     var freezeOrigin by remember { mutableStateOf(Rect.Zero) }
+    var detectSaving by remember { mutableStateOf(false) }
     val cs = MiuixTheme.colorScheme
+    val surface = cs.surface
+    val backdrop = rememberLayerBackdrop { drawRect(surface) }
     val s = snapshot
     val daemonAlive = s?.daemonAlive == true
     val total = s?.cores?.size ?: 0
@@ -131,11 +138,35 @@ fun PolicyPage(
         keyboard?.hide()
         focus.clearFocus()
     }
+    // 游戏状态轮询间隔：与日常间隔完全同一套三状态约束，默认 30，范围 5~600
+    var gameIntervalText by remember { mutableStateOf(cfg.gamePollInterval.toString()) }
+    var gameInputFocused by remember { mutableStateOf(false) }
+    var gameIntervalSaving by remember { mutableStateOf(false) }
+    fun saveGameInterval() {
+        if (gameIntervalSaving) return
+        commitGameInterval(gameIntervalText, cfg) { text, next ->
+            gameIntervalText = text
+            if (next != null) {
+                gameIntervalSaving = true
+                save(next, null) { ok, msg ->
+                    gameIntervalSaving = false
+                    Toaster.show(if (ok) "游戏间隔已设为 ${next.gamePollInterval} 秒" else "保存失败：$msg", !ok)
+                }
+            }
+        }
+        keyboard?.hide()
+        focus.clearFocus()
+    }
 
     // 外部刷新回来的配置变化：仅在未聚焦时同步显示值
     if (!inputFocused && intervalText != cfg.pollInterval.toString()) {
         intervalText = cfg.pollInterval.toString()
     }
+    // 同上约束：用户正在编辑游戏间隔时，外部刷新不得覆盖
+    if (!gameInputFocused && gameIntervalText != cfg.gamePollInterval.toString()) {
+        gameIntervalText = cfg.gamePollInterval.toString()
+    }
+
 
     Column(
         modifier = Modifier
@@ -155,6 +186,42 @@ fun PolicyPage(
     ) {
 
         PageHeading("策略", "按使用场景自动调整核心")
+
+        // ── 卡片零：策略总开关（V2.4.7 需求2）────────────────────────
+        // 关掉后策略页全部功能失效：App 侧所有策略开关置灰不可改，
+        // sh 侧跳过可选策略的额外读取与判定；基础轮询、游戏识别、限频和冻结独立运行。
+        // 重新打开会直接恢复关闭前的配置（配置值本身从未被清空）。
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                SwitchRow(
+                    title = "启用策略功能",
+                    desc = if (cfg.policyMasterEnabled) {
+                        "策略已启用，模块会按下面的开关自动调整核心。"
+                    } else {
+                        "策略已关闭：跳过温度、充电、录屏/相机恢复和游戏保持锁核策略。基础轮询、前台与游戏识别、日常限频和冻结仍独立运行。"
+                    },
+                    trailing = {
+                        Switch(
+                            checked = cfg.policyMasterEnabled,
+                            onCheckedChange = { on ->
+                                save(cfg.copy(policyMasterEnabled = on), null) { ok, msg ->
+                                    if (ok) onRefresh() else Toaster.show("保存失败：$msg", true)
+                                }
+                                Toaster.show(if (on) "策略功能已启用" else "策略功能已关闭")
+                            },
+                            colors = switchColors()
+                        )
+                    }
+                )
+                if (!cfg.policyMasterEnabled) {
+                    Gap(10.dp)
+                    HintText(
+                        "关闭期间 sh 进程不再读取温度、充电状态与前台应用，功耗最低。重新打开后恢复关闭前的全部策略配置。",
+                        color = Semantic.WARN
+                    )
+                }
+            }
+        }
 
         // ── 卡片四：当前场景判断 ─────────────────────────────────────
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -196,127 +263,231 @@ fun PolicyPage(
             }
         }
 
-        SectionHeading("自动恢复", "满足已开启的条件时恢复全部核心")
+        // V2.4.7 需求2：主开关关闭时，整段策略区置灰且不可点击
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SectionHeading("自动恢复", "满足已开启的条件时恢复全部核心")
 
-        // ── 卡片一：录屏 / 相机自动恢复 ──────────────────────────────
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
-                SwitchRow(
-                    title = "录屏或拍照时恢复全部核心",
-                    desc = "检测到名单内的录屏或相机应用时恢复全部核心。",
-                    trailing = {
-                        Switch(
-                            checked = cfg.captureBoost,
-                            onCheckedChange = { on ->
-                                save(cfg.copy(captureBoost = on), null) { ok, _ ->
-                                    if (ok) Toaster.show(if (on) "已开启录屏/相机自动恢复" else "已关闭录屏/相机自动恢复")
-                                }
-                            },
-                            colors = switchColors()
+                // ── 卡片一：录屏 / 相机自动恢复 ──────────────────────────────
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                        SwitchRow(
+                            title = "录屏或拍照时恢复全部核心",
+                            desc = "检测到名单内的录屏或相机应用时恢复全部核心。",
+                            trailing = {
+                                Switch(
+                                    checked = cfg.policyMasterEnabled && cfg.captureBoost,
+                                    enabled = cfg.loaded && cfg.policyMasterEnabled,
+                                    onCheckedChange = { on ->
+                                        save(cfg.copy(captureBoost = on), null) { ok, _ ->
+                                            if (ok) Toaster.show(if (on) "已开启录屏/相机自动恢复" else "已关闭录屏/相机自动恢复")
+                                        }
+                                    },
+                                    colors = switchColors()
+                                )
+                            }
                         )
+
+                        Gap(16.dp)
+                        HairLine()
+                        Gap(16.dp)
+
+                        SwitchRow(
+                            title = "充电时不锁核",
+                            desc = "充电期间保持全部核心在线，拔下后恢复日常策略。",
+                            trailing = {
+                                Switch(
+                                    checked = cfg.policyMasterEnabled && cfg.noLockCharging,
+                                    enabled = cfg.loaded && cfg.policyMasterEnabled,
+                                    onCheckedChange = { on ->
+                                        save(cfg.copy(noLockCharging = on), null) { ok, _ ->
+                                            if (ok) Toaster.show(if (on) "已开启充电不锁核" else "已关闭充电不锁核")
+                                        }
+                                    },
+                                    colors = switchColors()
+                                )
+                            }
+                        )
+
+                        Gap(10.dp)
+                        HintText("默认关闭：即便在充电，也照常锁核。")
                     }
-                )
-
-                Gap(16.dp)
-                HairLine()
-                Gap(16.dp)
-
-                SwitchRow(
-                    title = "充电时不锁核",
-                    desc = "充电期间保持全部核心在线，拔下后恢复日常策略。",
-                    trailing = {
-                        Switch(
-                            checked = cfg.noLockCharging,
-                            onCheckedChange = { on ->
-                                save(cfg.copy(noLockCharging = on), null) { ok, _ ->
-                                    if (ok) Toaster.show(if (on) "已开启充电不锁核" else "已关闭充电不锁核")
-                                }
-                            },
-                            colors = switchColors()
-                        )
-                    }
-                )
-
-                Gap(10.dp)
-                HintText("默认关闭：即便在充电，也照常锁核。")
-            }
-        }
-
-        TemperaturePolicyCard(cfg, snapshot, save)
-
-        SectionHeading("检测节奏")
-
-        // ── 卡片三：轮询间隔 ─────────────────────────────────────────
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
-                Text(text = "轮询间隔", color = cs.onSurface, fontSize = 16.sp)
-                Gap(10.dp)
-                SubText("间隔越短，场景切换响应越快，唤醒次数也越多。")
-                Gap(12.dp)
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = intervalText,
-                        onValueChange = { v ->
-                            // 只接受数字，最多 3 位，避免用户输入出奇怪内容
-                            intervalText = v.filter { it.isDigit() }.take(3)
-                        },
-                        singleLine = true,
-                        modifier = Modifier
-                            .width(84.dp)
-                            .onFocusChanged { state ->
-                                inputFocused = state.isFocused
-                            },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { saveInterval() }),
-                        shape = CircleShape,
-                        textStyle = TextStyle(fontSize = 14.sp, color = cs.onSurface),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = cs.onSurface,
-                            unfocusedTextColor = cs.onSurface,
-                            focusedBorderColor = cs.primary,
-                            unfocusedBorderColor = cs.outline,
-                            focusedContainerColor = cs.surfaceContainerHigh,
-                            unfocusedContainerColor = cs.surfaceContainerHigh,
-                            cursorColor = cs.primary
-                        )
-                    )
-                    HGap(10.dp)
-                    Text(text = "秒", color = cs.onSurfaceVariantSummary, fontSize = 14.sp)
-                    HGap(12.dp)
-                    TextButton(
-                        text = if (intervalSaving) "保存中" else "保存",
-                        cornerRadius = 100.dp,
-                        colors = ButtonDefaults.textButtonColorsPrimary(),
-                        onClick = { saveInterval() }, enabled = cfg.loaded && !intervalSaving
-                    )
                 }
 
-                Gap(10.dp)
-                HintText("允许范围 5 ~ 600 秒，默认 10 秒。留空或填非法值将回退为 10。")
+                TemperaturePolicyCard(cfg, snapshot, save)
+
             }
-        }
-
-        SectionHeading("更多策略")
-
-        // ── 卡片五：更多策略（点进各自的二级页）───────────────────────
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
-
-                NavRow(
-                    title = "冻结管理",
-                    summary = freezeSummary,
-                    modifier = Modifier.onGloballyPositioned { freezeOrigin = it.boundsInRoot() },
-                    onClick = { onOpenFreeze(freezeOrigin) }
+            if (!cfg.policyMasterEnabled) {
+                // 遮罩拦截触摸，避免误改已失效的策略
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(cs.surface.copy(alpha = 0.55f))
                 )
-
-
-                Gap(10.dp)
-                HintText("冻结管理仅适用于 ColorOS，其他厂商系统无效果。")
-                Gap(6.dp)
-                HintText("以上项默认关闭，改之前请先看清页面的说明。")
             }
         }
+                SectionHeading("检测节奏")
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                        Text(text = "检测范围", color = cs.onSurface, fontSize = 16.sp)
+                        Gap(12.dp)
+                        FloatingBottomBar(
+                            modifier = Modifier.fillMaxWidth(),
+                            selectedIndex = if (cfg.fgOnlyDetect) 0 else 1,
+                            onSelected = { index ->
+                                val only = index == 0
+                                if (cfg.loaded && !detectSaving && cfg.fgOnlyDetect != only) {
+                                    detectSaving = true
+                                    save(cfg.copy(fgOnlyDetect = only), null) { ok, msg ->
+                                        detectSaving = false
+                                        Toaster.show(if (ok) "检测范围已更新" else "保存失败：$msg", !ok)
+                                    }
+                                }
+                            },
+                            backdrop = backdrop, tabsCount = 2, compact = true
+                        ) { activate ->
+                            listOf("只读前台", "前台+后台").forEachIndexed { index, label ->
+                                val selected = cfg.fgOnlyDetect == (index == 0)
+                                FloatingBottomBarItem(selected = selected, onClick = {
+                                    if (cfg.loaded && !detectSaving) activate(index)
+                                }) {
+                                    Text(label, fontSize = 13.sp, maxLines = 1,
+                                        color = if (selected) cs.primary else cs.onSurfaceVariantSummary)
+                                }
+                            }
+                        }
+                        Gap(10.dp)
+                        HintText("只读前台包含可见小窗、分屏和画中画；前台+后台额外检测游戏名单内的存活进程。录屏与相机始终只认前台。")
+                    }
+                }
+
+
+                // ── 卡片三：轮询间隔 ─────────────────────────────────────────
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                        Text(text = "日常检测", color = cs.onSurface, fontSize = 16.sp)
+                        Gap(10.dp)
+                        SubText("间隔越短，场景切换响应越快，唤醒次数也越多。")
+                        Gap(12.dp)
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = intervalText,
+                                onValueChange = { v ->
+                                    // 只接受数字，最多 3 位，避免用户输入出奇怪内容
+                                    intervalText = v.filter { it.isDigit() }.take(3)
+                                },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .width(84.dp)
+                                    .onFocusChanged { state ->
+                                        inputFocused = state.isFocused
+                                    },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { saveInterval() }),
+                                shape = CircleShape,
+                                textStyle = TextStyle(fontSize = 14.sp, color = cs.onSurface),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = cs.onSurface,
+                                    unfocusedTextColor = cs.onSurface,
+                                    focusedBorderColor = cs.primary,
+                                    unfocusedBorderColor = cs.outline,
+                                    focusedContainerColor = cs.surfaceContainerHigh,
+                                    unfocusedContainerColor = cs.surfaceContainerHigh,
+                                    cursorColor = cs.primary
+                                )
+                            )
+                            HGap(10.dp)
+                            Text(text = "秒", color = cs.onSurfaceVariantSummary, fontSize = 14.sp)
+                            HGap(12.dp)
+                            TextButton(
+                                text = if (intervalSaving) "保存中" else "保存",
+                                cornerRadius = 100.dp,
+                                colors = ButtonDefaults.textButtonColorsPrimary(),
+                                onClick = { saveInterval() }, enabled = cfg.loaded && !intervalSaving
+                            )
+                        }
+
+                        Gap(10.dp)
+                        HintText("允许范围 5 ~ 600 秒，默认 10 秒。留空或填非法值将回退为 10。")
+                    }
+                }
+
+                // ── 卡片三之二：游戏状态轮询间隔 ─────────────────────────────
+                // 与上面日常间隔刻意拆成两张卡：两者用途不同（日常场景切换 vs 游戏检测），
+                // 用户要的是「两种间隔都能自己调」。约束与日常间隔完全一致。
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                        Text(text = "游戏间隔", color = cs.onSurface, fontSize = 16.sp)
+                        Gap(10.dp)
+                        SubText("检测到游戏时的轮询节奏，间隔越短越跟手，唤醒次数也越多。")
+                        Gap(12.dp)
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = gameIntervalText,
+                                onValueChange = { v ->
+                                    // 只接受数字，最多 3 位，避免用户输入出奇怪内容
+                                    gameIntervalText = v.filter { it.isDigit() }.take(3)
+                                },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .width(84.dp)
+                                    .onFocusChanged { state ->
+                                        gameInputFocused = state.isFocused
+                                    },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { saveGameInterval() }),
+                                shape = CircleShape,
+                                textStyle = TextStyle(fontSize = 14.sp, color = cs.onSurface),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = cs.onSurface,
+                                    unfocusedTextColor = cs.onSurface,
+                                    focusedBorderColor = cs.primary,
+                                    unfocusedBorderColor = cs.outline,
+                                    focusedContainerColor = cs.surfaceContainerHigh,
+                                    unfocusedContainerColor = cs.surfaceContainerHigh,
+                                    cursorColor = cs.primary
+                                )
+                            )
+                            HGap(10.dp)
+                            Text(text = "秒", color = cs.onSurfaceVariantSummary, fontSize = 14.sp)
+                            HGap(12.dp)
+                            TextButton(
+                                text = if (gameIntervalSaving) "保存中" else "保存",
+                                cornerRadius = 100.dp,
+                                colors = ButtonDefaults.textButtonColorsPrimary(),
+                                onClick = { saveGameInterval() }, enabled = cfg.loaded && !gameIntervalSaving
+                            )
+                        }
+
+                        Gap(10.dp)
+                        HintText("允许范围 5 ~ 600 秒，默认 30 秒。留空或填非法值将回退为 30。")
+                    }
+                }
+
+                SectionHeading("更多策略")
+
+                // ── 卡片五：更多策略（点进各自的二级页）───────────────────────
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+
+                        NavRow(
+                            title = "冻结管理",
+                            summary = freezeSummary,
+                            modifier = Modifier.onGloballyPositioned { freezeOrigin = it.boundsInRoot() },
+                            onClick = { onOpenFreeze(freezeOrigin) }
+                        )
+
+
+                        Gap(10.dp)
+                        HintText("冻结管理仅适用于 ColorOS，其他厂商系统无效果。")
+                        Gap(6.dp)
+                        HintText("以上项默认关闭，改之前请先看清页面的说明。")
+                    }
+                }
+
+
 
         BottomSpacer()
     }
@@ -371,6 +542,26 @@ private fun commitInterval(
         return
     }
     done(normalized.toString(), cfg.copy(pollInterval = normalized))
+}
+
+/**
+ * 游戏状态轮询间隔（game_poll_interval）提交：与 commitInterval 完全同构，
+ * 只有默认值不同（30）以及写入的字段不同。
+ */
+private fun commitGameInterval(
+    text: String,
+    cfg: CoreConfig,
+    done: (text: String, newCfg: CoreConfig?) -> Unit
+) {
+    val raw = text.trim().toIntOrNull()
+    // 留空或非法：回退默认 30
+    val normalized = if (raw == null) 30 else CoreConfig.clampInterval(raw)
+    // 与当前配置一致：不写盘，只把输入框回填成规范值
+    if (normalized == cfg.gamePollInterval) {
+        done(normalized.toString(), null)
+        return
+    }
+    done(normalized.toString(), cfg.copy(gamePollInterval = normalized))
 }
 
 /** 开关配色：统一走 Miuix 主题色。 */

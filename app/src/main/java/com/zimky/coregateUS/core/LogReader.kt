@@ -6,16 +6,16 @@ package com.zimky.coregateUS.core
  * 与 WebUI 的 refreshLog 顺序一致：
  *   /data/adb/modules/CoreGate/log/coregate.log
  *   /data/adb/modules_update/CoreGate/log/coregate.log
- *   /data/adb/CoreGate/log/coregate.log
- *   /data/adb/CoreGate/coregate.log   （旧路径）
+ *   /data/adb/modules/CoreGate/data/log/coregate.log
+ *   /data/adb/modules/CoreGate/data/coregate.log   （旧路径）
  */
 object LogReader {
 
     val PATHS = arrayOf(
         "/data/adb/modules/CoreGate/log/coregate.log",
         "/data/adb/modules_update/CoreGate/log/coregate.log",
-        "/data/adb/CoreGate/log/coregate.log",
-        "/data/adb/CoreGate/coregate.log"
+        "/data/adb/modules/CoreGate/data/log/coregate.log",
+        "/data/adb/modules/CoreGate/data/coregate.log"
     )
 
     private const val TAG_FROM = "###FROM:"

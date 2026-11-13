@@ -14,7 +14,7 @@ struct Options {
 fn options() -> Result<Options, String> {
     let mut opts = Options {
         watch: false,
-        config: "/data/adb/CoreGate/config.json".into(),
+        config: "/data/adb/modules/CoreGate/data/config.json".into(),
         sys: "/sys".into(),
         module: "/data/adb/modules/CoreGate".into(),
     };

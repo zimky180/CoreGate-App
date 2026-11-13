@@ -5,6 +5,7 @@
   "disable_core_ctl": false,
   "no_lock_charging": false,
   "poll_interval": 10,
+  "game_poll_interval": 30,
   "limit_freq": false,
   "capture_boost": false,
   "freeze_grp_log": false,
@@ -25,5 +26,9 @@
   "cap_big_mhz": 0,
   "cap_gpu_mhz": 0,
   "cap_gpu_pwrlevel": -1,
-  "temperature_lock_cores": ""
+  "temperature_lock_cores": "",
+  "game_lock_enable": false,
+  "game_lock_cores": "",
+  "policy_master_enabled": false,
+  "fg_only_detect": true
 }

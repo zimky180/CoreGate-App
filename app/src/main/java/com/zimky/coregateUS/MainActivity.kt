@@ -217,6 +217,32 @@ class MainActivity : ComponentActivity() {
             }
             }
             }
+            // 开发者调试叠加层（手指实时坐标）。
+            //
+            // 必须挂在**最外层** Box 里、且 zIndex 高于所有页面与二级页（最高是 2f），
+            // 否则会被 Scaffold / 二级页盖住，量不到被遮挡区域的坐标。
+            // 组件内部自带 enabled 判断，关闭时连 pointerInput 都不挂，零开销零干扰。
+            //
+            // V2.4.1 两处改动（对应用户要求「5 秒后完全启动调试模式」）：
+            //  1) 延迟挂载：打开开关后不立即接管屏幕，先给 debugArmIn 秒的缓冲，
+            //     时间到了才真正 enabled=true。否则手指刚离开开关，
+            //     整屏就被吞掉，用户连「我刚才点了什么」都看不出来。
+            //  2) 底部放行区归零：旧版留 112dp 让底栏仍可点，导致「调试模式没完全生效」。
+            //     现在整屏只量不点，导航栏同样不可用 —— 这正是「完全启动」的含义。
+            //     退出调试只能靠杀掉应用重进（AppSettings 不跨进程保留，见 AppSettings.kt）。
+            if (appearance.debugOverlay) {
+                var debugArmed by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    delay(DEBUG_ARM_MS)
+                    debugArmed = true
+                }
+                com.zimky.coregateUS.ui.DebugPointerOverlay(
+                    enabled = debugArmed,
+                    // 不再放行底部：调试模式一旦完全启动，全屏只量不点。
+                    bottomReservedPx = 0f,
+                    modifier = Modifier.fillMaxSize().zIndex(99f)
+                )
+            }
             oldThemeLayer?.let { layer ->
                 Box(Modifier.fillMaxSize().graphicsLayer { alpha = themeOverlayAlpha }
                     .drawWithContent { drawLayer(layer) })
@@ -244,6 +270,17 @@ private const val POLL_MS = 8_000L
 private const val MIN_REFRESH_GAP = 1_200L
 
 /**
+ * 调试模式的「武装」延迟（毫秒）。V2.4.1 新增。
+ *
+ * 打开开发者调试模式后，先等这么久才真正接管屏幕。
+ * 理由：调试层一旦 enabled 就会吞掉整屏触摸（导航栏也不再放行），
+ * 若在按下开关的同一帧生效，用户的手指还停在开关位置上，
+ * 会以为「点了没反应」或者「卡住了」，实际是刚开始量坐标。
+ * 给 5 秒缓冲，用户能看清界面、确认自己开了什么。
+ */
+private const val DEBUG_ARM_MS = 5_000L
+
+/**
  * 二级页的形态。用字符串而不是 sealed class，是为了能直接存进 rememberSaveable，
  * 旋转屏幕后仍停在同一页。
  */
@@ -255,23 +292,58 @@ private object SubPage {
 /** 底栏四栏文案。 */
 private val TAB_TITLES = listOf("锁核", "策略", "限频", "设置")
 
-/** 隐藏页面不参与布局和手势；保留组合状态及滚动位置。 */
+/**
+ * 单页槽位。V2.4.1：由「瞬间显隐」改为 KernelSU 式左右横滑。
+ *
+ * 旧实现的问题（用户原话「导航栏界面启动是瞬间有点晃眼」）：
+ *   只在 visible 翻转时做 180ms 透明度淡入，且不可见页直接把布局尺寸压成 0，
+ *   切栏时是「上一帧 A、下一帧 B」的硬切，视觉上是一次闪跳。
+ *
+ * 新实现对齐 KSU 的 HorizontalPager 观感，但**不引入 Pager**：
+ *   四页的既有 contract 是「常驻 composition、滚动位置与状态全部保留」，
+ *   换成 HorizontalPager 会让页面在滑出屏幕后被弃置重组合，滚动条会跳回顶部，
+ *   根页还会重跑 root 探测 —— 这与本项目「少发 su、别狂刷」的硬约束冲突。
+ *
+ * 做法（纯平移，零重建）：
+ *   pagerPosition 是一条跟随 currentTab 的浮点动画（见 AppRoot），
+ *   本页按 (index - pagerPosition) 乘以屏宽做横向位移：
+ *     - 当前页 → 位移 0，不透明；
+ *     - 右侧待进入的页 → 位移 +屏宽，等被滑入；
+ *     - 左侧已离开的页 → 位移 -屏宽，滑出屏幕。
+ *   只对「与当前位置距离 < 1 屏」的页做绘制与命中，其余页照旧不参与布局，
+ *   避免四页同时保留大图层导致滚动掉帧。
+ *
+ * 边缘 30% 做线性淡入淡出，模拟 KSU 里页面交接时的轻微渐隐，消除「晃眼」。
+ */
 @Composable
-private fun PageSlot(visible: Boolean, content: @Composable () -> Unit) {
+private fun PageSlot(
+    index: Int,
+    position: Float,
+    content: @Composable () -> Unit
+) {
     val surface = MiuixTheme.colorScheme.surface
-    val alpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = androidx.compose.animation.core.tween(180), label = "pageAlpha"
-    )
+    // 与当前页的屏幕距离：0 = 正在显示，±1 = 已在屏幕外一整屏
+    val distance = index - position
+    val visible = kotlin.math.abs(distance) < 1f
+    // 边缘渐隐：距离 0.7 之后开始透明，1 时完全透明
+    val alpha = (1f - kotlin.math.abs(distance) * 1.42f).coerceIn(0f, 1f)
+
     androidx.compose.ui.layout.Layout(content = {
         Box(Modifier.fillMaxSize().background(surface)) {
-            Box(Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }) { content() }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { this.alpha = alpha }
+            ) { content() }
         }
     }) { measurables, constraints ->
         if (visible) {
             val page = measurables.first().measure(constraints)
-            layout(page.width, page.height) { page.placeRelative(0, 0) }
+            // 横向整屏位移，纵向不动。roundToInt 避免像素缝隙
+            val dx = (distance * constraints.maxWidth).toInt()
+            layout(page.width, page.height) { page.placeRelative(dx, 0) }
         } else {
+            // 屏幕外的页不测量、不布局，也不接收触摸
             layout(constraints.maxWidth, constraints.maxHeight) {}
         }
     }
@@ -286,6 +358,30 @@ private fun AppRoot() {
     var packagesRaw by remember { mutableStateOf("") }
     var snapshot by remember { mutableStateOf<SysProbe.Snapshot?>(null) }
     var currentTab by rememberSaveable { mutableStateOf(0) }
+
+    /**
+     * 底栏切页的横向动画位置（浮点）。V2.4.1 新增。
+     *
+     * currentTab 是离散整数，直接用它做位移只会得到「0 或 ±1 屏」两种硬切结果。
+     * 这里再挂一条 animateFloatAsState，把整数目标值补间成连续浮点：
+     *   点「限频」→ 0f 平滑滚到 2f，中间会路过 1f，于是「策略」页也跟着滑一下，
+     *   与 KernelSU 里 HorizontalPager 的跟手滚动手感一致。
+     *
+     * 缓动曲线用 FastOutSlowInEasing 而非 Linear：
+     *   起手快、收尾缓，跨三栏（0→3）时不至于中间一段拖得太久；
+     *   320ms 是 KSU 页面切换的观感时长，比原来的 180ms 淡入更有「滑动」的实感。
+     *
+     * 注意：这不是手势驱动的 Pager，参数完全由底栏点击驱动，
+     * 所以不需要 nestedScroll / 拖动阈值那一套，也就不会与页内竖向滚动打架。
+     */
+    val pagerPosition by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = currentTab.toFloat(),
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = 320,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing
+        ),
+        label = "pagerPosition"
+    )
 
     // 当前展开的二级页；SubPage.NONE 表示停在四栏主界面
     var subPage by rememberSaveable { mutableStateOf(SubPage.NONE) }
@@ -478,6 +574,7 @@ private fun AppRoot() {
             .fillMaxSize()
             .background(MiuixTheme.colorScheme.background),
         bottomBar = {
+            // 歌单改用浮层占位，底栏不再跟随撤下（v2.3.3 原版行为）。
             if (subPage == SubPage.NONE) Box(modifier = Modifier.fillMaxWidth()) {
                 val navBottomInset = WindowInsets.navigationBars
                     .asPaddingValues()
@@ -535,7 +632,7 @@ private fun AppRoot() {
                     .fillMaxSize()
                     .layerBackdrop(backdrop)
             ) {
-                PageSlot(visible = currentTab == 0) {
+                PageSlot(index = 0, position = pagerPosition) {
                     // 冻结摘要由 probeFreeze() 统一探测后下传，LockPage 自己不发 root。
                     // 入口和策略页指向同一批二级页，用户在哪一栏都能进。
                     LockPage(
@@ -549,7 +646,7 @@ private fun AppRoot() {
                         onOpenFreeze = { origin -> subPageOrigin = origin; subPage = SubPage.FREEZE }
                     )
                 }
-                PageSlot(visible = currentTab == 1) {
+                PageSlot(index = 1, position = pagerPosition) {
                     PolicyPage(
                         cfg = cfg,
                         snapshot = snapshot,
@@ -561,10 +658,10 @@ private fun AppRoot() {
                         onOpenFreeze = { origin -> subPageOrigin = origin; subPage = SubPage.FREEZE }
                     )
                 }
-                PageSlot(visible = currentTab == 2) {
+                PageSlot(index = 2, position = pagerPosition) {
                     FreqPage(cfg, snapshot, packagesRaw, RootShell, { refresh(false) }, ::save)
                 }
-                PageSlot(visible = currentTab == 3) {
+                PageSlot(index = 3, position = pagerPosition) {
                     SettingsPage(cfg, snapshot, packagesRaw, RootShell, { refresh(true) }, ::save)
                 }
 

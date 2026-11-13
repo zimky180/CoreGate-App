@@ -1,11 +1,7 @@
 package com.zimky.coregateUS.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.shape.CircleShape
 import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.provider.OpenableColumns
@@ -44,7 +40,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -254,6 +253,9 @@ private val bundledTracks = listOf(
     HomeTrack("builtin_a04", "asset:///music/a04.m4a", "坏女孩", "徐良"),
     HomeTrack("builtin_a05", "asset:///music/a05.m4a", "素颜", "许嵩 & 何曼婷"),
     HomeTrack("builtin_a06", "asset:///music/a06.m4a", "后会无期", "徐良 & 汪苏泷"),
+    HomeTrack("builtin_a07", "asset:///music/a07.m4a", "你是我的风景", "何洁"),
+    HomeTrack("builtin_a08", "asset:///music/a08.m4a", "唯一", "王力宏"),
+    HomeTrack("builtin_a09", "asset:///music/a09.m4a", "我们的歌", "王力宏"),
 )
 
 private fun readTracks(prefs: android.content.SharedPreferences): List<HomeTrack> {
@@ -284,6 +286,8 @@ fun BoxScope.HomeMusicPlayer() {
             !prefs.getBoolean("bundled_seeded_v1", false) -> bundledTracks
             !prefs.getBoolean("bundled_seeded_v2", false) -> bundledTracks.filter { it.id in setOf("builtin_a05", "builtin_a06") }
             !prefs.getBoolean("bundled_seeded_v3", false) -> bundledTracks.filter { it.id == "builtin_a06" }
+            !prefs.getBoolean("bundled_seeded_v5", false) ->
+                bundledTracks.filter { it.id in setOf("builtin_a07", "builtin_a08", "builtin_a09") }
             else -> emptyList()
         }
         val initial = saved + additions.filter { built -> saved.none { it.id == built.id } }
@@ -299,7 +303,6 @@ fun BoxScope.HomeMusicPlayer() {
     val scope = rememberCoroutineScope()
     val history = remember { mutableStateListOf<String>() }
     var showQueue by remember { mutableStateOf(false) }
-    var queueOrigin by remember { mutableStateOf(Rect.Zero) }
     var edit by remember { mutableStateOf(false) }
     var returnToQueue by remember { mutableStateOf(false) }
     var editingId by remember { mutableStateOf<String?>(null) }
@@ -322,6 +325,7 @@ fun BoxScope.HomeMusicPlayer() {
             prefs.edit().putBoolean("bundled_seeded_v1", true)
                 .putBoolean("bundled_seeded_v2", true)
                 .putBoolean("bundled_seeded_v3", true)
+                .putBoolean("bundled_seeded_v5", true)
                 .putBoolean("bundled_pruned_v4", true).apply()
         }
     }
@@ -423,8 +427,18 @@ fun BoxScope.HomeMusicPlayer() {
         onDispose { owner.lifecycle.removeObserver(observer); stream.close() }
     }
     // One surface remains anchored at the right edge throughout both transitions.
+    // Same pattern as the freeze page: remember the button's bounds in root
+    // coordinates so the queue card can collapse back onto it.
+    var queueOrigin by remember { mutableStateOf(Rect.Zero) }
     Box(Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = PAGE_BOTTOM_INSET + 8.dp)) {
-        Card(Modifier.widthIn(max = if (expanded) 304.dp else 64.dp).clickable { expanded = !expanded }) {
+        MusicDroplet(
+            expanded = expanded,
+            color = cs.surfaceContainerHigh,
+            onExpand = { expanded = true },
+            button = {
+                Text("♪", color = cs.primary, fontSize = 20.sp)
+            }
+        ) {
                 Column(Modifier.width(280.dp).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         AnimatedContent(targetState = track, modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)),
@@ -454,7 +468,9 @@ fun BoxScope.HomeMusicPlayer() {
                             if (selected == null) { returnToQueue = false; editingId = null; edit = true } else stream.toggle(selected.url)
                         }
                         MusicTransportButton("next", "随机下一首", tracks.size > 1) { step(1) }
-                        TextButton("歌单", modifier = Modifier.onGloballyPositioned { queueOrigin = it.boundsInRoot() }, onClick = {
+                        TextButton("歌单", modifier = Modifier.onGloballyPositioned {
+                            queueOrigin = it.boundsInRoot()
+                        }, onClick = {
                             edit = false
                             returnToQueue = false
                             editingId = null
@@ -464,18 +480,20 @@ fun BoxScope.HomeMusicPlayer() {
                 }
         }
     }
+    // V2.4.7：播放器展开态也要吃掉返回键。
+    //   原来只有歌单/编辑器拦返回，播放器面板展开时按返回会直接把整个页面（含底部导航）退回，
+    //   用户的本意通常只是「把这个面板收起来」。
+    //   enabled 条件刻意不含 showQueue/edit：那两个由下面的 BackHandler 处理，
+    //   同时为真的话两个 handler 会抢事件，先注册的这个会赢，导致歌单反而关不掉。
+    BackHandler(enabled = expanded && !showQueue && !edit) { expanded = false }
     // Queue and editor share one animated surface and Android Back handler.
     BackHandler(enabled = showQueue || edit) { if (edit) closeEditor() else showQueue = false }
-    LiquidReveal(visible = showQueue || edit, origin = queueOrigin,
-        modifier = Modifier.align(Alignment.Center)) {
-        Box(Modifier.fillMaxSize()
-            .background(MiuixTheme.colorScheme.surface)
-            .background(cs.onSurface.copy(alpha = 0.18f))
-            .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = null) { if (edit) closeEditor() else showQueue = false },
-            contentAlignment = Alignment.Center) {
-            Card(Modifier.padding(24.dp).widthIn(max = 360.dp).fillMaxWidth()
-                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {}) {
+    // Grows out of the player panel as one card; it never covers the screen.
+    Box(Modifier.align(Alignment.BottomEnd)
+        .padding(end = 8.dp, bottom = PAGE_BOTTOM_INSET + 8.dp + 64.dp)) {
+        MusicSheet(visible = showQueue || edit, origin = queueOrigin,
+            onDismiss = { if (edit) closeEditor() else showQueue = false }) {
+            Card(Modifier.fillMaxWidth()) {
                 if (edit) {
                     val original = tracks.firstOrNull { it.id == editingId }
                     var draftUrl by remember(editingId) { mutableStateOf(original?.url.orEmpty()) }
@@ -532,7 +550,7 @@ fun BoxScope.HomeMusicPlayer() {
                 if (tracks.isEmpty()) Text("添加歌曲后，即可使用上一首和下一首。", color = cs.onSurfaceVariantSummary, fontSize = 13.sp)
                 tracks.forEachIndexed { index, item ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f).clip(CircleShape).combinedClickable(onLongClick = {
+                        Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).combinedClickable(onLongClick = {
                             returnToQueue = true; editingId = item.id; showQueue = false; edit = true
                         }, onClick = {
                             val old = tracks.indexOfFirst { it.id == track?.id }
@@ -546,9 +564,21 @@ fun BoxScope.HomeMusicPlayer() {
                         TextButton("编辑", onClick = { returnToQueue = true; editingId = item.id; showQueue = false; edit = true })
                     }
                 }
-                TextButton("添加网络歌曲", onClick = { returnToQueue = true; editingId = null; showQueue = false; edit = true })
-                TextButton("导入本地音乐", onClick = { showQueue = false; localPicker.launch(arrayOf("audio/*")) })
-                TextButton("关闭", onClick = { showQueue = false })
+                // V2.4.2: actions moved to the right, lining up with the per-track 编辑 buttons.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    // V2.4.7：按用户要求对调这两个按钮——原来的「添加网络歌曲」位置换成「关闭」，
+                    //   原来的「导入本地音乐」位置换成「添加本地音乐」。
+                    //   只换按钮本身，卡片容器 / 进出场动画 / 手势全部不动。
+                    TextButton("关闭", onClick = { showQueue = false })
+                    Spacer(Modifier.width(12.dp))
+                    TextButton("添加本地音乐", onClick = {
+                        // localPicker 的回调是自包含的：选中文件后自己读取元数据、去重、入库、persist，
+                        // 不依赖 returnToQueue / editingId / edit 这些编辑态，所以这里只关歌单、拉选择器。
+                        showQueue = false
+                        localPicker.launch(arrayOf("audio/*"))
+                    })
+                }
             }
                 }
             }

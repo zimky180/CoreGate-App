@@ -103,6 +103,9 @@ fun LockPage(
     val cs = MiuixTheme.colorScheme
     val s = snapshot
     val daemonAlive = s?.daemonAlive == true
+    // 本次开机的启动等待记录（模块 lifecycle.sh 写入 boot_wait；-1 = 旧版模块/无文件）
+    val bootWaitTotal = s?.bootWaitTotal ?: -1
+    val bootWaitPoll = s?.bootWaitPoll ?: -1
     var processorName by remember { mutableStateOf("读取中…") }
     LaunchedEffect(Unit) { processorName = ProcessorName.load() }
     val total = s?.cores?.size ?: 0
@@ -152,7 +155,7 @@ fun LockPage(
         if (s?.svcState == true) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AnimatedGradientText(if (isProModule) "你好！尊贵的pro用户" else "你好！骁龙8gen5机主", cs.error)
+                    AnimatedGradientText("你好！ CoreGate用户", cs.error)
                 }
             }
         }
@@ -189,6 +192,7 @@ fun LockPage(
                     Text("运行概览", color = cs.onSurfaceVariantSummary, fontSize = 13.sp)
                     StateBadge(when {
                         s == null -> "读取中"
+                        !daemonAlive && bootWaitTotal > 0 -> "开机等待"
                         !daemonAlive -> "未运行"
                         locked -> "核心已离线"
                         total == 0 -> "待确认"
@@ -198,6 +202,7 @@ fun LockPage(
                 Gap(14.dp)
                 Text(text = when {
                     s == null -> "正在读取状态"
+                    !daemonAlive && bootWaitTotal > 0 -> "正在等待系统启动完成"
                     !daemonAlive -> "守护进程未启动"
                     total == 0 -> "等待核心信息"
                     locked -> "${total - onlineCount} 个核心已离线"
@@ -207,6 +212,9 @@ fun LockPage(
                 Gap(8.dp)
                 Text(text = when {
                     s == null -> "模块状态与核心信息将在读取后显示。"
+                    !daemonAlive && bootWaitTotal > 0 ->
+                        "模块已在本次开机等待 ${bootWaitTotal} 秒后接管（其中启动轮询 $bootWaitPoll 秒、" +
+                            "固定缓冲 5 秒）。等待期间核心与守护进程尚未启动，属正常流程，不是故障。"
                     !daemonAlive -> "请确认模块已启用；安装或更新后需要重启设备。"
                     total == 0 -> "守护进程运行中，暂未读到核心状态。"
                     locked -> "守护进程运行中，当前在线 $onlineCount 个核心。"
@@ -232,7 +240,19 @@ fun LockPage(
             }
         }
 
-        SectionHeading("核心控制", "点击核心查看封锁或恢复操作")
+        // 游戏模式下 lifecycle.sh 已把全部核心恢复上线，此时点核心去「封锁」
+        // 会与游戏态策略互相打架（下一轮轮询又会被解封），所以整块核心控制禁点。
+        val gameMode = s?.gameActive == true
+        if (gameMode) {
+            val gameLocked = if (cfg.gameLockEnable && cfg.gameLockCores.isNotBlank()) {
+                "被策略控制：${cfg.gameLockCores}"
+            } else {
+                "未开启游戏锁核，核心已全部放开"
+            }
+            SectionHeading("核心控制", gameLocked)
+        } else {
+            SectionHeading("核心控制", "点击核心查看封锁或恢复操作")
+        }
 
         // ── 卡片三：核心状态 ─────────────────────────────────────────
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -269,7 +289,26 @@ fun LockPage(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             rowCores.forEach { core ->
-                                val col = coreColor(core)
+                                // V2.4.7：被「游戏保持锁核」策略控制的核不再标红，仅用文案标注。
+                                // 条件三项同时成立：①正在游戏态 ②游戏保持锁核已开启
+                                // ③该核在 game_lock_cores 名单里。此时后端 lifecycle.sh
+                                // 会用 do_lock "$GAME_LOCK_LIST" 主动把它按下去，
+                                // 与用户手点 core-off 的 manual 清单是两条独立通路，
+                                // 所以要在界面上明确区分「我封的」和「策略封的」。
+                                //
+                                // gameLockCores 是模块侧的逗号串（如 "6,7"），这里临时解析成集合：
+                                // cores 最多 8 项，逐格 split 的开销可以忽略。
+                                val policyCores = remember(cfg.gameLockCores) {
+                                    cfg.gameLockCores.split(',', '，', ' ')
+                                        .mapNotNull { it.trim().toIntOrNull() }
+                                        .toSet()
+                                }
+                                val policyBanned = cfg.policyMasterEnabled && gameMode &&
+                                    cfg.gameLockEnable &&
+                                    core.id in policyCores
+                                // V2.4.7：被策略控制的核不再标红——红色让人以为出了故障，
+                                // 而它其实是模块的正常工作状态。统一用正常核心色，只在文案上说明。
+                                val col = if (policyBanned) Semantic.ERR else coreColor(core)
                                 // 点方块 = 切换这个核的「手动封锁」状态：
                                 //   在线 → 封锁（写进模块的 manual_off 清单，主循环会一直按着它）
                                 //   离线 → 解封（移出清单并立刻拉回在线）
@@ -280,14 +319,19 @@ fun LockPage(
                                 //   界面永远显示设备真实的样子，不做乐观更新。
                                 //
                                 // cpu0 不给点：它永不下线，点了也只会失败，反而让人以为模块坏了。
-                                val clickable = core.id != 0 && !busy
+                                val clickable = core.id != 0 && !busy && !gameMode
                                 CoreCell(
                                     id = core.id,
                                     online = core.online,
-                                    freqText = if (core.online) SysProbe.fmtMhz(core.curFreq) else "离线",
+                                    freqText = when {
+                                        policyBanned -> "被策略控制"
+                                        core.online -> SysProbe.fmtMhz(core.curFreq)
+                                        else -> "离线"
+                                    },
                                     color = col,
                                     modifier = Modifier.weight(1f),
                                     processing = busyCoreId == core.id,
+                                    banned = policyBanned,
                                     onClick = if (clickable) {
                                         // 点方块只弹确认框，不直接写。封锁/解封会真的把核下线上线，
                                         // 误触会让手机瞬间卡顿，所以必须二次确认。
@@ -308,7 +352,7 @@ fun LockPage(
 
                 Gap(12.dp)
                 Text(
-                    text = "绿色 = 低频省电 · 蓝色 = 中频 · 橙色 = 高频大核（优先封锁对象）",
+                    text = "蓝色 = 在线 · 灰色 = 离线 · 标注「被策略控制」= 当前策略封禁中",
                     color = cs.onSurfaceVariantSummary,
                     fontSize = 11.5.sp,
                     lineHeight = 16.sp
@@ -436,15 +480,17 @@ private fun StateBadge(text: String, color: Color) {
     }
 }
 
-/** 核心方块配色：离线灰 / 低频绿 / 中频蓝 / 高频大核橙。 */
+/**
+ * 核心方块配色 —— V2.4.1 起改为固定状态语义，不再按频率分色：
+ *   在线 = 蓝色（ACC）· 离线 = 灰灭（OFF）· 被策略控制 = 正常色 + 文案标注
+ *
+ * 为什么放弃「低频绿 / 中频蓝 / 高频橙」：
+ *   频率是动态量，同一个核在两轮轮询之间就会变色，整个网格像在闪，
+ *   用户反馈「有点花眼」。而这个页面真正要让人一眼看懂的只有三件事：
+ *   这个核活着没有、是不是被我封了、是不是被游戏策略封了。
+ */
 private fun coreColor(core: SysProbe.Core): Color {
-    if (!core.online) return Semantic.OFF
-    val max = if (core.availMax > 0) core.availMax else core.maxFreq
-    if (core.cluster == "big") {
-        return if (max > 0 && core.curFreq >= max * 7 / 10) Semantic.WARN else Semantic.ACC
-    }
-    val ratio = if (max > 0) core.curFreq.toFloat() / max.toFloat() else 0f
-    return if (ratio < 0.5f) Semantic.OK else Semantic.ACC
+    return if (core.online) Semantic.ACC else Semantic.OFF
 }
 
 /**

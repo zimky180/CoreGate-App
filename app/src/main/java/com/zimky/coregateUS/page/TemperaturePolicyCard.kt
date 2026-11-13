@@ -83,7 +83,7 @@ internal fun TemperaturePolicyCard(
     val matches = parts.getOrNull(2) == cfg.temperatureMode &&
         parts.getOrNull(3)?.toIntOrNull() == cfg.temperatureThreshold
     val status = when {
-        !cfg.temperatureEnabled -> "已关闭"
+        !cfg.policyMasterEnabled || !cfg.temperatureEnabled -> "已关闭"
         !cfg.enabled -> "模块已停用"
         snapshot?.daemonAlive != true -> "等待模块运行"
         !fresh -> "等待模块更新"
@@ -97,6 +97,8 @@ internal fun TemperaturePolicyCard(
         else -> "等待模块执行"
     }
     val temp = if (fresh && sourceMatches && cfg.temperatureEnabled) parts.getOrNull(1)?.toIntOrNull() else null
+    // V2.3.6：CPU / SoC 热点温度已整体移除，只保留电池温度。
+    // 温度串第 9 段仍保留空位（恒为空串），以免破坏按 | 切分的旧逻辑。
     val surface by rememberUpdatedState(cs.surfaceContainer)
     val backdrop = rememberLayerBackdrop { drawRect(surface) }
     val available = cfg.loaded
@@ -104,32 +106,49 @@ internal fun TemperaturePolicyCard(
     SectionHeading("场景策略", "游戏保持锁核与电池温度策略")
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("游戏保持锁核", color = cs.onSurface, fontSize = 14.sp)
-            SubText("进入名单内游戏后，只保持下方选中的核心封锁，替代主页名单。例如日常锁 CPU6、7，游戏只选 CPU7，进入游戏便解封 CPU6。")
-            val gameCores = snapshot?.cores.orEmpty().sortedBy { it.id }.filter { it.id > 0 }
-            if (gameCores.isEmpty()) HintText("等待读取核心列表后可自定义。")
-            gameCores.chunked(4).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { core ->
-                        val selected = core.id in gameDraft
-                        TextButton(text = "CPU${core.id}${if (selected) " ✓" else ""}",
-                            enabled = available, modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.textButtonColors(textColor = if (selected) cs.primary else cs.onSurfaceVariantSummary),
-                            onClick = { gameDraft = if (selected) gameDraft - core.id else gameDraft + core.id })
+            SwitchRow(
+                title = "游戏保持锁核",
+                desc = "进游戏时只锁下面勾选的核心，其余全放开。",
+                trailing = {
+                    Switch(checked = cfg.policyMasterEnabled && cfg.gameLockEnable, enabled = available && cfg.policyMasterEnabled,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = androidx.compose.ui.graphics.Color.White,
+                            checkedTrackColor = cs.primary,
+                            checkedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                            uncheckedThumbColor = cs.onSurfaceVariantSummary,
+                            uncheckedTrackColor = cs.surfaceContainerHigh,
+                            uncheckedBorderColor = cs.outline),
+                        onCheckedChange = { persist(cfg.copy(gameLockEnable = it)) })
+                }
+            )
+            val gameUsable = available && cfg.gameLockEnable
+            if (cfg.gameLockEnable) {
+                SubText("勾选的核心进游戏后被封锁，并显示为红色。")
+                val gameCores = snapshot?.cores.orEmpty().sortedBy { it.id }.filter { it.id > 0 }
+                if (gameCores.isEmpty()) HintText("等待读取核心列表后可自定义。")
+                gameCores.chunked(4).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { core ->
+                            val selected = core.id in gameDraft
+                            TextButton(text = "CPU${core.id}${if (selected) " ✓" else ""}",
+                                enabled = gameUsable, modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.textButtonColors(textColor = if (selected) cs.primary else cs.onSurfaceVariantSummary),
+                                onClick = { gameDraft = if (selected) gameDraft - core.id else gameDraft + core.id })
+                        }
                     }
                 }
+                SubText("已保存的游戏核心：${cfg.gameLockCores.ifBlank { "未选择（游戏时全部解封）" }}")
+                TextButton(text = "保存游戏核心", enabled = gameUsable && gameDraft.sorted().joinToString(",") != cfg.gameLockCores,
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    onClick = { persist(cfg.copy(gameLockCores = gameDraft.sorted().joinToString(","))) })
             }
-            SubText("已保存的游戏核心：${cfg.gameLockCores.ifBlank { "未选择（游戏时全部解封）" }}")
-            TextButton(text = "保存游戏核心", enabled = available && gameDraft.sorted().joinToString(",") != cfg.gameLockCores,
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = { persist(cfg.copy(gameLockCores = gameDraft.sorted().joinToString(","))) })
-            HintText("此项独立于温度开关。少开一颗大核可能降低游戏性能；游戏内撤销日常限频，高温额外锁核仍叠加在游戏名单之上。录屏/相机恢复、充电恢复及高温解封优先。")
+            HintText("少锁一颗大核可能影响游戏性能。高温额外锁核只在日常场景叠加。")
             HairLine()
             SwitchRow(
                 title = "启用温度策略",
                 desc = "达到阈值时执行所选动作，降温后恢复当前场景策略。",
                 trailing = {
-                    Switch(checked = cfg.temperatureEnabled, enabled = available,
+                    Switch(checked = cfg.policyMasterEnabled && cfg.temperatureEnabled, enabled = available && cfg.policyMasterEnabled,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = androidx.compose.ui.graphics.Color.White,
                             checkedTrackColor = cs.primary,
@@ -142,10 +161,12 @@ internal fun TemperaturePolicyCard(
             )
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text(if (temp != null) String.format(Locale.ROOT, "%.1f ℃", temp / 1000.0) else "— ℃",
-                        color = cs.primary, fontSize = 30.sp)
-                    Text("电池温度", color = cs.onSurfaceVariantSummary, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Column {
+                        Text(if (temp != null) String.format(Locale.ROOT, "%.1f ℃", temp / 1000.0) else "— ℃",
+                            color = cs.primary, fontSize = 26.sp)
+                        Text("电池温度", color = cs.onSurfaceVariantSummary, fontSize = 12.sp)
+                    }
                 }
                 Badge(containerColor = cs.primary.copy(alpha = 0.12f), contentColor = cs.primary) {
                     AnimatedGradientText(status, cs.primary)
@@ -174,12 +195,12 @@ internal fun TemperaturePolicyCard(
                 }
             }
             SubText(if (cfg.temperatureMode == "unlock")
-                "达到阈值后恢复全部核心并撤销 CoreGate 限频；这项选择不保证降低温度。"
-                else "达到阈值后，在当前场景名单之外额外封锁下方选中的核心；降温后仅撤销额外封锁。游戏自定义名单生效时同样叠加。")
-            HintText("使用 Android 电池温度口径，与 CPU / SoC 热点温度不同；不同工具的刷新时间可能造成少量差异。")
+                "达到阈值后放开全部核心并撤销限频。"
+                else "达到阈值后额外封锁下面选中的核心。")
+            HintText("只看电池温度，读取稳定不会漏判。")
             if (cfg.temperatureMode == "lock") {
                 Text("高温额外锁核", color = cs.onSurface, fontSize = 14.sp)
-                SubText("日常封锁：${if (cfg.lockCores == "auto") "自动选择或手动核心名单" else cfg.lockCores}。以下选择独立保存；重复选择已封锁的核心不会增加封锁数量。CPU0 始终保留。")
+                SubText("日常封锁：${if (cfg.lockCores == "auto") "自动选择" else cfg.lockCores}。以下额外选择，重复不累加，CPU0 始终保留。")
                 val cores = snapshot?.cores.orEmpty().sortedBy { it.id }.filter { it.id > 0 }
                 if (cores.isEmpty()) HintText("等待读取核心列表后可自定义。")
                 cores.chunked(4).forEach { row ->

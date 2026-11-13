@@ -3,7 +3,7 @@
 from pathlib import Path
 import argparse, hashlib, json, subprocess, zipfile
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ('module.prop', 'customize.sh', 'service.sh', 'migrate-config.sh', 'uninstall.sh', 'action.sh', 'sepolicy.rule', 'config.example.json', 'packages.txt', 'capture.txt', 'update.json', 'LICENSE', 'FREEZE-UPSTREAM.txt')
+FILES = ('module.prop', 'customize.sh', 'CoreGate.sh', 'service.sh', 'migrate-config.sh', 'uninstall.sh', 'action.sh', 'sepolicy.rule', 'config.example.json', 'packages.txt', 'capture.txt', 'update.json', 'LICENSE', 'FREEZE-UPSTREAM.txt')
 LIBS = 'config hardware freeze cores frequency probe runtime thermal lifecycle commands'.split()
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
@@ -36,6 +36,7 @@ def main():
             archive.writestr(info, data)
     with zipfile.ZipFile(target) as archive:
         assert archive.testzip() is None
+        assert {'CoreGate.sh', 'service.sh', 'customize.sh', 'lib/commands.sh', 'lib/lifecycle.sh'} <= set(archive.namelist()), 'Missing runtime entry or libraries'
         assert all(archive.read(name) == data for name, data in files.items())
     digest = hashlib.sha256(target.read_bytes()).hexdigest()
     target.with_suffix('.sha256').write_text(digest + '  ' + target.name + '\n')

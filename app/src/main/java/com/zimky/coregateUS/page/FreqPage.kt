@@ -146,7 +146,7 @@ fun FreqPage(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
 
-        PageHeading("日常限频", "调整目标档位，查看实际状态", trailing = "无法保证所有机型有效")
+        PageHeading("日常限频", "调整目标档位，查看实际状态", trailing = "只能保证骁龙 8Gen5 有效")
 
         // ── 卡片一：限频开关 ─────────────────────────────────────────
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -365,9 +365,8 @@ fun FreqPage(
 
                 Gap(6.dp)
                 HintText("以上为实际上限，目标值来自当前配置；保存后等待模块下一轮应用。")
-                top.yukonga.miuix.kmp.basic.TextButton(
-                    text = "刷新限频实况", onClick = onRefresh
-                )
+                Gap(12.dp)
+                RefreshRow(onClick = onRefresh)
             }
         }
 
@@ -690,6 +689,23 @@ private fun ResetRow(onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Text(text = "恢复默认档位", color = cs.primary, fontSize = 13.sp)
+    }
+}
+
+/** 「刷新限频实况」整行按钮：与 ResetRow 同款排版，避免裸 TextButton 左对齐破坏卡片节奏。 */
+@Composable
+private fun RefreshRow(onClick: () -> Unit) {
+    val cs = MiuixTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(cs.surfaceContainerHigh)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = "刷新限频实况", color = cs.primary, fontSize = 13.sp)
     }
 }
 

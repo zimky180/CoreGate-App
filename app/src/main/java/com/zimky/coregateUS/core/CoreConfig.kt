@@ -13,11 +13,11 @@ import org.json.JSONObject
  * 所以 toJson() 永远输出全字段。
  *
  * 模块端约定：
- *   /data/adb/CoreGate/config.json    JSON 单行
- *   /data/adb/CoreGate/packages.txt   每行一个包名（游戏列表）
+ *   /data/adb/modules/CoreGate/data/config.json    JSON 单行
+ *   /data/adb/modules/CoreGate/data/packages.txt   每行一个包名（游戏列表）
  */
 object Paths {
-    const val DIR = "/data/adb/CoreGate"
+    const val DIR = "/data/adb/modules/CoreGate/data"
     const val FILE = "$DIR/config.json"
     const val PACKAGES = "$DIR/packages.txt"
     const val STATE = "$DIR/state"
@@ -25,7 +25,7 @@ object Paths {
     const val SNAPSHOT = "$DIR/freq_snapshot"
 
     const val MODULE_DIR = "/data/adb/modules/CoreGate"
-    const val SERVICE = "$MODULE_DIR/service.sh"
+    const val SERVICE = "$MODULE_DIR/CoreGate.sh"
 }
 
 /** 字段与 service.sh 一一对应，不要改名。 */
@@ -38,8 +38,10 @@ data class CoreConfig(
     var disableCoreCtl: Boolean = false,
     /** 充电时不锁 */
     var noLockCharging: Boolean = false,
-    /** 5~600 秒 */
+    /** 5~600 秒，日常轮询间隔 */
     var pollInterval: Int = 10,
+    /** 5~600 秒，游戏状态轮询间隔（模块侧键名 game_poll_interval，默认 30） */
+    var gamePollInterval: Int = 30,
     /** 日常限频 */
     var limitFreq: Boolean = false,
     /**
@@ -60,6 +62,7 @@ data class CoreConfig(
     var capGpuPwrLevel: Int = -1,
     /** 录屏 / 相机自动恢复 */
     var captureBoost: Boolean = false,
+    var fgOnlyDetect: Boolean = true,
     /** 温度策略：电池温度，默认关闭。 */
     var temperatureEnabled: Boolean = false,
     /** lock 为日常额外封锁（游戏跳过）；unlock 为高温恢复全部核心。 */
@@ -67,6 +70,28 @@ data class CoreConfig(
     var temperatureThreshold: Int = 40,
     /** 高温时在日常封锁之外额外封锁的核心；空值表示未选择。 */
     var temperatureLockCores: String = "",
+    /**
+     * 策略总开关（V2.4.7 需求 2）。
+     *
+     * 总开关关闭或全部子策略关闭时，跳过可选策略的额外读取与判定。
+     * 基础轮询、前台与游戏识别、日常限频和冻结独立运行；温度仅开启时采样。
+     * 重新打开后沿用关闭前的各项策略配置，不需要用户重设。
+     * 首次安装默认关闭；已保存的用户选择保持不变。
+     */
+    var policyMasterEnabled: Boolean = false,
+    /**
+     * sh 轮询进程开关（V2.4.7 需求 5）。
+     *
+     * true  = 守护进程存活，按策略轮询查日常 / 游戏；
+     * false = 进程被杀死，不再轮询，模块降级为「开机时按配置锁一次核 / 限一次频」的固态模式。
+     *
+     * 与 enabled 的区别：enabled 是模块总开关，关掉会解除锁核恢复原状；
+     * 这里是「进程降级」，锁核与限频结果保留不动，只是不再动态跟随场景。
+     * 默认 true。
+     */
+    var daemonAlive: Boolean = true,
+    /** 游戏保持锁核主开关：进游戏时只恢复非名单核心，名单内核心保持离线。 */
+    var gameLockEnable: Boolean = false,
     var gameLockCores: String = "",
     /** 冻结：日志上报（六组，默认全关，由用户自己开） */
     var freezeGrpLog: Boolean = false,
@@ -105,6 +130,7 @@ data class CoreConfig(
         put("disable_core_ctl", disableCoreCtl)
         put("no_lock_charging", noLockCharging)
         put("poll_interval", clampInterval(pollInterval))
+        put("game_poll_interval", clampInterval(gamePollInterval))
         put("limit_freq", limitFreq)
         // 限频阈值：0 交给 service.sh 兜底默认，非 0 即为用户自定义
         put("cap_little_mhz", capLittleMhz)
@@ -112,11 +138,16 @@ data class CoreConfig(
         put("cap_gpu_mhz", capGpuMhz)
         put("cap_gpu_pwrlevel", capGpuPwrLevel)
         put("capture_boost", captureBoost)
+        put("fg_only_detect", fgOnlyDetect)
         put("temperature_enabled", temperatureEnabled)
         put("temperature_mode", if (temperatureMode == "unlock") "unlock" else "lock")
         put("temperature_threshold", clampTemperature(temperatureThreshold))
         put("temperature_lock_cores", normalizeTemperatureCores(temperatureLockCores))
+        put("game_lock_enable", gameLockEnable)
         put("game_lock_cores", normalizeTemperatureCores(gameLockCores))
+        // V2.4.7：策略总开关 + sh 轮询进程开关
+        put("policy_master_enabled", policyMasterEnabled)
+        put("daemon_alive", daemonAlive)
         // 冻结六组：键名必须与 service.sh 的 freeze_$1 拼出来的完全一致
         put("freeze_grp_log", freezeGrpLog)
         put("freeze_grp_media", freezeGrpMedia)
@@ -155,8 +186,9 @@ data class CoreConfig(
 
         private val MANAGED_KEYS = setOf(
             "enabled", "lock_cores", "disable_core_ctl", "no_lock_charging",
-            "poll_interval", "limit_freq", "capture_boost",
-            "game_lock_cores", "temperature_enabled", "temperature_mode", "temperature_threshold", "temperature_lock_cores",
+            "poll_interval", "game_poll_interval", "limit_freq", "capture_boost", "fg_only_detect",
+            "game_lock_enable", "game_lock_cores", "temperature_enabled", "temperature_mode", "temperature_threshold", "temperature_lock_cores",
+            "policy_master_enabled", "daemon_alive",
             "cap_little_mhz", "cap_big_mhz", "cap_gpu_mhz", "cap_gpu_pwrlevel",
             "freeze_grp_log", "freeze_grp_media", "freeze_grp_cloud",
             "freeze_grp_diag", "freeze_grp_ad", "freeze_grp_self"
@@ -186,6 +218,7 @@ data class CoreConfig(
                 c.disableCoreCtl = o.optBoolean("disable_core_ctl", false)
                 c.noLockCharging = o.optBoolean("no_lock_charging", false)
                 c.pollInterval = clampInterval(o.optInt("poll_interval", 10))
+                c.gamePollInterval = clampInterval(o.optInt("game_poll_interval", 30))
                 c.limitFreq = o.optBoolean("limit_freq", false)
                 // 限频阈值：0（前三项）/ -1（pwrlevel）视为「未自定义」，由 service.sh 兜底
                 c.capLittleMhz = o.optInt("cap_little_mhz", 0)
@@ -193,11 +226,16 @@ data class CoreConfig(
                 c.capGpuMhz = o.optInt("cap_gpu_mhz", 0)
                 c.capGpuPwrLevel = o.optInt("cap_gpu_pwrlevel", -1)
                 c.captureBoost = o.optBoolean("capture_boost", false)
+                c.fgOnlyDetect = o.optBoolean("fg_only_detect", true)
                 c.temperatureEnabled = o.optBoolean("temperature_enabled", false)
                 c.temperatureMode = if (o.optString("temperature_mode", "lock") == "unlock") "unlock" else "lock"
                 c.temperatureThreshold = clampTemperature(o.optInt("temperature_threshold", 40))
                 c.temperatureLockCores = normalizeTemperatureCores(o.optString("temperature_lock_cores", ""))
+                c.gameLockEnable = o.optBoolean("game_lock_enable", false)
                 c.gameLockCores = normalizeTemperatureCores(o.optString("game_lock_cores", ""))
+                // V2.4.7：默认 true，老配置缺键时保持原有行为
+                c.policyMasterEnabled = o.optBoolean("policy_master_enabled", false)
+                c.daemonAlive = o.optBoolean("daemon_alive", true)
                 // 冻结六组，默认全关；用户自己开过才为 true
                 c.freezeGrpLog = o.optBoolean("freeze_grp_log", false)
                 c.freezeGrpMedia = o.optBoolean("freeze_grp_media", false)

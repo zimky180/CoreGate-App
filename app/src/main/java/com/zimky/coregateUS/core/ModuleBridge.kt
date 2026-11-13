@@ -1,7 +1,7 @@
 package com.zimky.coregateUS.core
 
 /**
- * ModuleBridge —— 通过 service.sh 的 CLI 入口控制模块。
+ * ModuleBridge —— 一次性锁核/恢复使用 APK 内置共享规则；单核意图管理走模块 CLI。
  *
  * 为什么不再自己拼 sysfs 命令：service.sh 里的 lock_once / unlock_once
  * 已经处理了「模块已禁用跳过」「lock_cores=auto 走 detect_high」
@@ -31,27 +31,29 @@ object ModuleBridge {
      * @param count 封锁核心数；0 或负数表示按 config.json 的 lock_cores 走
      */
     fun lockOnce(sh: RootShell, count: Int, cb: ((ok: Boolean, msg: String) -> Unit)?) {
-        val cmd = buildCmd("--lock-once", count)
+        val cmd = EmbeddedCoreEngine.command(unlock = false, count = count)
         sh.exec(cmd) { code, out, err ->
             val r = parse(out) ?: Result(ok = false, msg = firstLine(err, out, code))
-            cb?.invoke(r.ok, r.msg)
+            cb?.invoke(r.ok && code == 0, r.msg)
         }
     }
 
     /** 立即恢复全部核心。 */
     fun unlockOnce(sh: RootShell, cb: ((ok: Boolean, msg: String) -> Unit)?) {
-        val cmd = buildCmd("--unlock-once", 0)
+        val cmd = EmbeddedCoreEngine.command(unlock = true)
         sh.exec(cmd) { code, out, err ->
             val r = parse(out) ?: Result(ok = false, msg = firstLine(err, out, code))
-            cb?.invoke(r.ok, r.msg)
+            cb?.invoke(r.ok && code == 0, r.msg)
         }
     }
 
     // ── 单核手动上下线 ──────────────────────────────────────────────
     // 语义说明（与 service.sh 的 manual_off 清单严格对应）：
-    //   用户点一个核 → 日常保持离线，游戏等性能场景临时恢复。
+    // 用户点一个核 → 日常态保持离线；启用游戏保持锁核时，
+    //   游戏态合并 game_lock_cores 与主页手动清单，并校验实际在线状态。
+    //   退出游戏回到日常再由 do_lock 按回手动清单。
     //   所以这里不能直接写 sysfs，必须走 service.sh 的 --core-off：
-    //   它会把核号记进 manual_off 清单，do_lock() 每轮按回离线、do_unlock() 临时恢复。
+    //   它会把核号记进 manual_off 清单，do_lock() 每轮按回离线。
     //   若绕过模块直写 sysfs，下一轮自动恢复就会把它拉回来，用户会以为按钮没生效。
 
     /**
@@ -92,7 +94,7 @@ object ModuleBridge {
             when {
                 lines.contains("OK") -> cb(true, "")
                 lines.contains("BADCPU") -> cb(false, "核号无效")
-                text.contains("NO_SERVICE") -> cb(false, "找不到 service.sh，模块可能未安装")
+                text.contains("NO_SERVICE") -> cb(false, "找不到 CoreGate.sh，模块可能未安装")
                 lines.contains("FAIL") -> cb(false, "内核拒绝了这次操作（可能被厂商策略锁定）")
                 else -> cb(false, firstLine(err, out, code))
             }
@@ -141,9 +143,12 @@ object ModuleBridge {
             return r
         }
 
+        if (out.lineSequence().any { it.trim() == "NO_CONFIG" || it.trim() == "MODULE_DISABLED" }) {
+            return Result(ok = false, msg = "模块配置缺失或模块已禁用")
+        }
         if (out.contains("NO_SERVICE")) {
             r.ok = false
-            r.msg = "未找到 service.sh，模块可能没装或路径不对"
+            r.msg = "未找到 CoreGate.sh，模块可能没装或路径不对"
             return r
         }
 

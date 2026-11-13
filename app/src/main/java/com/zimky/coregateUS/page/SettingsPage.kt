@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
@@ -40,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zimky.coregateUS.core.CoreConfig
@@ -159,6 +161,9 @@ fun SettingsPage(
     var logLoaded by remember { mutableStateOf(false) }
     var logGeneration by remember { mutableStateOf(0) }
     var confirmClearLogs by remember { mutableStateOf(false) }
+    // V2.4.7 需求5：杀 sh 进程的二次确认开关与进行中标记
+    var confirmKillDaemon by remember { mutableStateOf(false) }
+    var killDaemonBusy by remember { mutableStateOf(false) }
 
     // ── 诊断刷新计数，点一次变一次 ──
     var diagTick by remember { mutableStateOf(0) }
@@ -191,6 +196,33 @@ fun SettingsPage(
             }
         )
     }
+
+        // V2.4.7 需求5：杀进程不可逆（只能重启恢复），必须先二次确认
+        if (confirmKillDaemon) {
+            ConfirmDialog(
+                title = "关闭 CoreGate？",
+                message = "关掉后会杀死进程，只能重启恢复。",
+                confirmText = "确认杀死",
+                onCancel = { confirmKillDaemon = false },
+                onConfirm = {
+                    confirmKillDaemon = false
+                    killDaemonBusy = true
+                    val cmd = "sh " + Paths.SERVICE + " --stop"
+                    sh.exec(cmd) { code, out, err ->
+                        killDaemonBusy = false
+                        val r = out.trim()
+                        when {
+                            r.lines().any { it.trim() == "STOP_OK" } && code == 0 -> Toaster.show("CoreGate 已停止，只能重启恢复")
+                            r.contains("STILL") -> Toaster.show("进程仍在，可能被守护拉起，请稍后重试")
+                            r.contains("NOPID") -> Toaster.show("没有找到 sh 进程，可能已经停止")
+                            code != 0 -> Toaster.show("执行失败：" + err.trim())
+                            else -> Toaster.show("结果未知：" + r)
+                        }
+                        onRefresh()
+                    }
+                }
+            )
+        }
 
     Column(
         modifier = Modifier
@@ -264,25 +296,16 @@ fun SettingsPage(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
                 SwitchRow(
-                    title = "启用 CoreGate",
-                    desc = if (cfg.enabled) {
-                        "守护进程会按策略自动锁核。"
-                    } else {
-                        "已停用：模块不再做任何锁核动作，但不会卸载。"
-                    }
+                    title = "启动 CoreGate",
+                    desc = if (cfg.enabled && daemonAlive) "CoreGate.sh 正在运行。关闭后只能重启恢复。" else "已死亡，重启设备后自动开启。"
                 ) {
                     Switch(
-                        checked = cfg.enabled,
-                        onCheckedChange = { on ->
-                            save(cfg.copy(enabled = on), null) { ok, msg ->
-                                if (ok) onRefresh() else Toaster.show("保存失败：$msg", true)
-                            }
-                            Toaster.show(if (on) "CoreGate 正在启用" else "CoreGate 正在停用")
-                        },
+                        checked = cfg.enabled && daemonAlive,
+                        enabled = cfg.loaded && cfg.enabled && daemonAlive && !killDaemonBusy,
+                        onCheckedChange = { on -> if (!on) confirmKillDaemon = true },
                         colors = switchColors()
                     )
                 }
-
                 Gap(12.dp)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -291,13 +314,12 @@ fun SettingsPage(
                     SubText("运行状态")
                     Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
                         when {
-                            !cfg.enabled -> StateBadge("已停用", Semantic.OFF)
-                            !daemonAlive -> StateBadge("未运行", Semantic.ERR)
+                            !cfg.enabled -> StateBadge("已死亡", Semantic.ERR)
+                            !daemonAlive -> StateBadge("已死亡", Semantic.ERR)
                             else -> BreathingBadge("运行中", Semantic.OK)
                         }
                     }
                 }
-
                 // 模块就位状态一律来自 SysProbe 的同一次 root 探测结果：
                 // true 就位 / false 确实缺失 / null 还没探测过（不能当成缺失）
                 val svc = s?.svcState ?: SysProbe.svcCache
@@ -432,6 +454,31 @@ fun SettingsPage(
         }
 
         SectionHeading("调试工具", "按需展开日志与诊断信息")
+
+        // ── 卡片：开发者调试模式 ──────────────────────────────────────
+        // 仅开发人员使用。开启后整屏覆盖一层坐标显示，并吞掉所有触摸事件，
+        // 界面处于「只量不点」状态；关掉立即恢复正常操作。
+        // 与模块功能完全无关，不写入 /data/adb/modules/CoreGate/data/config.json，只存 App 私有偏好。
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+                SwitchRow(
+                    title = "开发者调试模式",
+                    desc = "仅开发人员开启，不懂勿碰。开启后手指按下的实时坐标会显示在屏幕上（px / dp / 距边距离）。调试模式不会保存：退出应用重新进入后自动关闭。"
+                ) {
+                    Switch(checked = appearance.debugOverlay, onCheckedChange = {
+                        setAppearance(appearance.copy(debugOverlay = it))
+                    }, colors = switchColors())
+                }
+                if (appearance.debugOverlay) {
+                    Spacer(Modifier.height(8.dp))
+                    HintText(
+                        "调试模式已开启：5 秒后完全启动，之后屏幕顶部会实时显示触摸坐标。" +
+                            "启动后整个屏幕只量不点，底部导航栏与页面按钮都无法点击。" +
+                            "退出应用重进后自动关闭。"
+                    )
+                }
+            }
+        }
 
         // ── 卡片三：模块日志 ─────────────────────────────────────────
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -577,7 +624,7 @@ fun SettingsPage(
                         Gap(8.dp)
 
                         // ② 守护进程
-                        KeyValueRow("守护进程", if (daemonAlive) "存活" else "未运行", gradientValue = true)
+                        KeyValueRow("CoreGate.sh", if (daemonAlive) "存活" else "已死亡", gradientValue = true)
                         KeyValueRow("PID", if ((s?.daemonPid ?: -1) > 0) s!!.daemonPid.toString() else "—", gradientValue = true)
 
                         Gap(8.dp)
@@ -690,7 +737,11 @@ fun SettingsPage(
                 )
 
                 Gap(10.dp)
-                HintText("用着有问题、或者想加点什么，直接来找我。说清楚机型和现象，能省一半排查时间。")
+                HintText(
+                    "用着有问题、或者想加点什么，直接来找我。说清楚机型和现象，能省一半排查时间。\n\n" +
+                        "另外：你反馈的 bug 被修复、或者提的意见被采纳，都会被加入上面的贡献者名单。" +
+                        "名单不是挂名，是留个记录 —— 这个模块哪些地方是因为谁才变好的。"
+                )
             }
         }
 

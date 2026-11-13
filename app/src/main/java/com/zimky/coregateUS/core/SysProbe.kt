@@ -55,11 +55,35 @@ object SysProbe {
         /** state 文件第一段（前台包名） */
         var statePkg: String = "",
         var stateRaw: String = "",
+        /**
+         * state 文件是否带 game 标记（第三段为 game）。
+         *
+         * 游戏态解封与「用户手动解封 / 充电解封 / 录屏解封」在 state 里原本完全同形
+         * （都是 unlocked|pkg），APK 无法区分，于是进游戏后主页仍显示「核心控制」
+         * 可点、点核心会弹封锁窗。lifecycle.sh 现在会在游戏态追加 |game，
+         * 这里据此判定，页面才能切成「游戏模式已释放所有核心」。
+         */
+        var gameActive: Boolean = false,
         var temperatureRaw: String = "",
         var moduleVersion: String = "",
         var moduleVersionCode: Int? = null,
         var daemonAlive: Boolean = false,
         var daemonPid: Int = -1,
+        /**
+         * 本次开机模块的启动等待秒数（轮询 sys.boot_completed 秒数 + 固定 5 秒）。
+         *
+         * 由 lifecycle.sh 在等待结束后写入 $CONFIG_DIR/boot_wait，格式：
+         *   poll=<轮询秒> fixed=5 total=<合计> ts=<epoch>
+         * -1 表示没有该文件（旧版模块 / 尚未完成启动）。
+         *
+         * 用途：守护进程还没起来的这段空窗期，主页原来只能显示「守护进程未启动」，
+         * 用户会误以为模块坏了。有了这个值就能显示「正在等待系统启动完成（约 N 秒）」。
+         */
+        var bootWaitTotal: Int = -1,
+        /** boot_wait 文件里的轮询秒数（poll 段），-1 表示未知 */
+        var bootWaitPoll: Int = -1,
+        /** boot_wait 文件写入时刻（epoch 秒），0 表示未知；用于判断是否为「本次开机」的记录 */
+        var bootWaitTs: Long = 0L,
         /** policy0 scaling_max_freq */
         var littleMaxCur: Long = 0,
         /** policy6 scaling_max_freq */
@@ -149,7 +173,7 @@ c.append("echo \"ROOTU:\"; id -u 2>/dev/null; ")
         // 各种操作删掉，而守护进程本身还活得好好的。此时 PID="" → 旧分支输出 "DEAD:"，
         // 后面连数字都没有，正则 (\d+) 也匹配不上，于是被判成「未运行」。
         // 修复思路：pid 文件只是「快速通道」，取不到就退化为 /proc 全量扫描——
-        // 直接找 cmdline 里带 CoreGate/service.sh 的进程，这才是进程是否存活的唯一真相。
+        // 直接找 cmdline 里带 CoreGate/CoreGate.sh 的进程，这才是进程是否存活的唯一真相。
         c.append("echo -n \"DAEMON:\"; ")
         // Kotlin 字符串里裸 $ 会被当模板起始 → 编译期 Unresolved reference。
         // 用 D 变量持有真正的 $ 字符，拼进 shell 源码里。
@@ -163,11 +187,11 @@ c.append("echo \"ROOTU:\"; id -u 2>/dev/null; ")
         //    这里先落到 PS_OUT 变量，再单独 pipe 处理，彻底避开 $(( 歧义。
         c.append("SPID=\"\"; ")
         c.append("PS_OUT=\"").append(D).append("(ps -A -o PID,ARGS 2>/dev/null || ps -A 2>/dev/null)\"; ")
-        c.append("SPID=\"").append(D).append("(echo \"").append(D).append("PS_OUT\" | grep 'CoreGate/service.sh' ")
+        c.append("SPID=\"").append(D).append("(echo \"").append(D).append("PS_OUT\" | grep 'CoreGate/CoreGate.sh' ")
             .append("| grep -v grep | head -n 1 | tr -s ' ' | cut -d' ' -f1)\"; ")
         c.append("if [ -z \"").append(D).append("SPID\" ]; then for d in /proc/[0-9]*; do ")
         c.append("cl=\"").append(D).append("(cat ").append(D).append("d/cmdline 2>/dev/null | tr '\\000' ' ')\"; ")
-        c.append("case \"").append(D).append("cl\" in *CoreGate/service.sh*) SPID=")
+        c.append("case \"").append(D).append("cl\" in *CoreGate/CoreGate.sh*) SPID=")
             .append(D).append("{d#/proc/}; break;; esac; ")
         c.append("done; fi; ")
         c.append("if [ -n \"").append(D).append("SPID\" ] && kill -0 \"").append(D).append("SPID\" 2>/dev/null; then ")
@@ -178,6 +202,9 @@ c.append("echo \"ROOTU:\"; id -u 2>/dev/null; ")
         c.append("echo \"DPID:\"; cat ").append(Paths.PID).append(" 2>/dev/null; ")
         c.append("echo \"STATEF:\"; cat ").append(Paths.STATE).append(" 2>/dev/null; ")
         c.append("echo \"THERMAL:\"; cat ").append(Paths.DIR).append("/temperature.state 2>/dev/null; ")
+        // 开机等待记录：lifecycle.sh 在「等 sys.boot_completed + 固定 5 秒」结束后写入。
+        // 守护进程尚未启动时，主页据此显示「正在等待系统启动完成」，而不是干巴巴的「未运行」。
+        c.append("echo \"BOOTWAIT:\"; cat ").append(Paths.DIR).append("/boot_wait 2>/dev/null; ")
         // 模块就位检查（以前这里是 File(Paths.SERVICE).exists()，因为 /data/adb 是
         // 0700 root:root，普通 uid 恒判 false，直接导致「模块未刷入/损坏」的连锁误报）。
         // 现在改成同一次 root 调用里顺带判定，只输出三类标记，解析端一一对应。
@@ -283,11 +310,40 @@ c.append("echo \"ROOTU:\"; id -u 2>/dev/null; ")
             s.moduleVersion = line(out, "MODVER").orEmpty().trim().removePrefix("v")
             s.moduleVersionCode = line(out, "MODCODE")?.trim()?.toIntOrNull()
             s.temperatureRaw = line(out, "THERMAL").orEmpty().trim()
+            // 开机等待记录：lifecycle.sh 在「轮询 sys.boot_completed + 固定 5 秒」结束后写入
+            //   poll=23 fixed=5 total=28 ts=1700000000
+            // 取不到就保持 -1（= 无文件 / 旧版模块），页面据此决定是否显示等待提示。
+            val bw = line(out, "BOOTWAIT")
+            if (bw != null && bw.contains('=')) {
+                var poll = -1
+                var total = -1
+                var ts = 0L
+                for (seg in bw.trim().split(' ', '\t')) {
+                    val eq = seg.indexOf('=')
+                    if (eq <= 0) continue
+                    val k = seg.substring(0, eq).trim()
+                    val v = seg.substring(eq + 1).trim()
+                    when (k) {
+                        "poll" -> v.toIntOrNull()?.let { if (it >= 0) poll = it }
+                        "total" -> v.toIntOrNull()?.let { if (it >= 0) total = it }
+                        "ts" -> v.toLongOrNull()?.let { if (it > 0L) ts = it }
+                    }
+                }
+                // total 必须为正才算有效记录；缺失时用 poll + 5 兜底
+                if (total <= 0 && poll >= 0) total = poll + 5
+                if (total > 0) {
+                    s.bootWaitPoll = poll
+                    s.bootWaitTotal = total
+                    s.bootWaitTs = ts
+                }
+            }
             val st = line(out, "STATEF")
             if (st != null) {
                 s.stateRaw = st.trim()
-                val seg = s.stateRaw.split(Regex("\\s+"))
-                if (seg.isNotEmpty()) s.statePkg = seg[0]
+                // state 格式：<state>|<pkg>[|game]
+                val parts = s.stateRaw.split("|")
+                if (parts.isNotEmpty()) s.statePkg = parts[0]
+                s.gameActive = parts.any { it.trim() == "game" }
             }
 
             // 模块就位：三个标记谁出现就认谁。

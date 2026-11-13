@@ -6,7 +6,7 @@ THERMAL_TEMP=""
 THERMAL_STATE_FILE="$CONFIG_DIR/temperature.state"
 
 thermal_read() {
-    # Android 电池节点单位为 0.1℃；统一输出毫摄氏度，不用 CPU 热点替代。
+    # Android 电池节点单位为 0.1℃；统一输出毫摄氏度。
     _battery_temp=$(cat /sys/class/power_supply/battery/temp 2>/dev/null)
     case "$_battery_temp" in ''|*[!0-9-]*) _battery_temp="";; esac
     if [ -n "$_battery_temp" ] && [ "$_battery_temp" -ge -200 ] 2>/dev/null && [ "$_battery_temp" -le 1000 ]; then
@@ -18,11 +18,20 @@ thermal_read() {
         exit
     }'
 }
-
 thermal_publish() {
-    printf '%s|%s|%s|%s|%s|battery|%s|%s\n' "$_thermal_status" "$THERMAL_TEMP" "$THERMAL_MODE" "$THERMAL_THRESHOLD" "$(date +%s)" "$THERMAL_EXTRA_CONFIG" "$THERMAL_EXTRA_ACTIVE" > "$THERMAL_STATE_FILE.$$.tmp" &&
-        mv -f "$THERMAL_STATE_FILE.$$.tmp" "$THERMAL_STATE_FILE"
+    local _tp_key
+    _tp_key="$_thermal_status|$THERMAL_TEMP|$THERMAL_MODE|$THERMAL_THRESHOLD|$THERMAL_EXTRA_CONFIG|$THERMAL_EXTRA_ACTIVE|$THERMAL_ENABLED|$ENABLED|$SAFE_MODE"
+    # Disabled state has no sensor heartbeat. Republish on any change or missing file.
+    if [ "$_thermal_status" = disabled ] && [ "${_THERMAL_PUBLISHED_KEY:-}" = "$_tp_key" ] && [ -s "$THERMAL_STATE_FILE" ]; then
+        return 0
+    fi
+    # 九段协议保持不变，第 9 段（cpu_temp）恒为空串：CPU 温度已移除，
+    # 保留空位是为了不破坏 APK 侧按 | 切分的兼容性。
+    printf '%s|%s|%s|%s|%s|battery|%s|%s|%s\n' "$_thermal_status" "$THERMAL_TEMP" "$THERMAL_MODE" "$THERMAL_THRESHOLD" "$(date +%s)" "$THERMAL_EXTRA_CONFIG" "$THERMAL_EXTRA_ACTIVE" "" > "$THERMAL_STATE_FILE.$$.tmp" &&
+        mv -f "$THERMAL_STATE_FILE.$$.tmp" "$THERMAL_STATE_FILE" &&
+        _THERMAL_PUBLISHED_KEY=$_tp_key
 }
+
 
 thermal_select_extra() {
     THERMAL_EXTRA_ACTIVE=""
@@ -55,7 +64,31 @@ thermal_decide() {
 }
 
 thermal_update() {
-    THERMAL_ENABLED=$(cfg_bool temperature_enabled false)
+    THERMAL_ENABLED=false
+    if [ "${POLICY_MASTER:-false}" = true ] && [ "$ENABLED" = true ] && [ "$SAFE_MODE" != 1 ]; then
+        THERMAL_ENABLED=$(cfg_bool temperature_enabled false)
+    fi
+    # 温度策略未开启时立即短路：不读传感器、不读额外名单、不做比较，
+    # 只发布一次合法状态串。这是模块最主要的空闲路径，
+    # 必须保证 sh 进程本身几乎零开销（省电模块不能自己耗电）。
+    # 注意：短路分支只跳过后面的读传感器与比较，thermal_publish 的
+    # 九段格式保持不变，APK 侧解析不受影响。
+    if [ "$THERMAL_ENABLED" != "true" ]; then
+        THERMAL_MODE=$(cfg_val temperature_mode lock)
+        [ "$THERMAL_MODE" = "unlock" ] || THERMAL_MODE=lock
+        THERMAL_THRESHOLD=$(cfg_int temperature_threshold 40)
+        case "$THERMAL_THRESHOLD" in ''|*[!0-9]*) THERMAL_THRESHOLD=40;; esac
+        [ "$THERMAL_THRESHOLD" -lt 35 ] && THERMAL_THRESHOLD=35
+        [ "$THERMAL_THRESHOLD" -gt 60 ] && THERMAL_THRESHOLD=60
+        THERMAL_EXTRA_CONFIG=$(cfg_val temperature_lock_cores "")
+        THERMAL_EXTRA_ACTIVE=""
+        THERMAL_TEMP=""
+        THERMAL_HOT=0
+        THERMAL_KEY=""
+        _thermal_status=disabled
+        thermal_publish
+        return 0
+    fi
     THERMAL_MODE=$(cfg_val temperature_mode lock)
     [ "$THERMAL_MODE" = "unlock" ] || THERMAL_MODE=lock
     THERMAL_THRESHOLD=$(cfg_int temperature_threshold 40)
@@ -70,9 +103,10 @@ thermal_update() {
     THERMAL_TEMP=""
     _thermal_status=disabled
     if [ "$THERMAL_ENABLED" = "true" ] && [ "$ENABLED" = "true" ] && [ "$SAFE_MODE" != "1" ]; then
+        # 只读电池温度：CPU/SoC 温度已移除（读数不稳、各机型差异大，用户明确要求删掉）。
         THERMAL_TEMP=$(thermal_read)
         if [ -z "$THERMAL_TEMP" ]; then
-            # 电池温度不可用时撤销温度策略，回到普通策略。
+            # 电池温度读不到时撤销温度策略，回到普通策略。
             THERMAL_HOT=0; _thermal_status=unavailable
         else
             if [ "$THERMAL_TEMP" -ge "$((THERMAL_THRESHOLD * 1000))" ]; then
@@ -90,4 +124,3 @@ thermal_update() {
         log "温度策略：$_thermal_status mode=$THERMAL_MODE temp=${THERMAL_TEMP}mC threshold=${THERMAL_THRESHOLD}C"
     fi
 }
-

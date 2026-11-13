@@ -89,7 +89,11 @@ internal fun Modifier.liquidSheen(): Modifier = composed {
 /** Observe presses without consuming them, so switches and scrolling keep their own gestures. */
 internal fun Modifier.capillaryTouch(): Modifier = composed {
     if (!com.zimky.coregateUS.ui.theme.LocalAppSettings.current.waterRipples) return@composed this
-    val tint = MiuixTheme.colorScheme.primary
+    // Same accent seed as liquidSheen(), so ripples match the glow instead of
+    // drifting to a muted tonal primary.
+    val appearance = com.zimky.coregateUS.ui.theme.LocalAppSettings.current
+    val cs0 = MiuixTheme.colorScheme
+    val tint = if (appearance.keyColor != 0) Color(appearance.keyColor) else cs0.primary
     val waves = remember { mutableStateListOf<TouchWave>() }
     val scope = rememberCoroutineScope()
     clipToBounds().pointerInput(Unit) {
@@ -112,7 +116,13 @@ internal fun Modifier.capillaryTouch(): Modifier = composed {
     }.drawWithContent {
         drawContent()
         waves.forEach { wave ->
-            drawCapillaryWaves(wave.origin, wave.progress.value, tint, intensity = 0.65f)
+            drawCapillaryWaves(
+                wave.origin, wave.progress.value, tint,
+                intensity = 0.55f,
+                // 普通卡片只走小涟漪：0.42f 让波峰在指尖附近 150dp 上下收住，
+                // 不再像音乐播放器那样铺满整卡。大涟漪只有播放器展开那一处。
+                spread = 0.42f
+            )
         }
     }
 }

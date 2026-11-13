@@ -1,97 +1,78 @@
-# CoreGate App
+# CoreGate · 核心门控
 
-CoreGate 原生 Android 管理界面，作者 zimky。基于 Compose 与 Miuix，实现锁核状态、游戏策略、限频和冻结管理。具体策略由独立模块守护进程执行，关闭 App 后模块继续工作。
+**v2.6.4 / 264** · Android 原生 Root 管理 App 与配套锁核模块 · 作者 zimky
 
-## v2.3.5
+日常锁核与限频，检测游戏自动恢复；支持冻结管理、电池温度策略、录屏/相机恢复和游戏保持锁核。
 
-### APK 内容
+## 下载与仓库
 
-1. 歌单移除《甲乙丙丁》《左转灯》，升级后首次启动会自动清理旧音频资源。
-2. 后台播放暂停策略与音频焦点处理重写，切后台、来电、其他应用抢占焦点时行为可控。
-3. 强调色只改 keyColor，不再被动态取色覆盖，主题跟随度提高。
-4. 卡片支持多点独立动画，多指同时拖动互不干扰。
-5. Pro 用户标题改为「你好Pro用户」。
-6. 冻结页为单行渐变进行中状态，只作用于被操作项；冻结状态读取提速。
-7. 温度策略默认 40℃，可在 35～60℃ 调整，高温锁核与高温解封二选一，配置与逻辑写入 `service.sh`，关闭 App 后依然生效。
-8. 新增 `migrate-config.sh`：把旧配置中已删除功能的残留项迁移回默认配置，并保留 `config.json.pre-v230.bak` 备份。
-9. 导航选中胶囊、开关配色、保存按钮统一使用主题配色，修正浅色主题下叠黑与强制动态取色问题。
-10. 新增液态 UI 组件：`LiquidCard`、`CapillaryWaves`、`LiquidGravity`、`LiquidReveal`、`MusicDroplet`，以及配套 `cg_chip_*` / `cg_particle_*` 动画资源。
+- [App 正式发布与完整源码](https://github.com/zimky180/CoreGate-App)
+- [模块发布与完整源码](https://github.com/zimky180/CoreGate)
+- [APK 同步源码与构建仓库](https://github.com/zimky180/CoreGate-APK)
+- [下载 v2.6.4 App](https://github.com/zimky180/CoreGate-App/releases/tag/v2.6.4)
+- [下载 v2.6.4 模块](https://github.com/zimky180/CoreGate/releases/tag/v2.6.4)
 
-### 模块 ZIP
+App 的自动更新入口为 **CoreGate-App**；模块更新入口为 **CoreGate**。校验文件为各 Release 的 SHA256SUMS.txt。
 
-- `service.sh` 由单文件重构为入口 + 库：加载 `lib/config.sh`、`hardware.sh`、`freeze.sh`、`cores.sh`、`frequency.sh`、`probe.sh`、`runtime.sh`、`thermal.sh`、`lifecycle.sh`、`commands.sh`，入口处校验每个库是否存在，缺一即退出。
-- 库必须用 `.` 在入口进程内加载，不能作为子进程执行，否则状态与锁不共享。
-- 模块打包改由 `module/tools/package_module.py` 完成：白名单收集文件、对每个 `.sh` 执行 `sh -n` 语法检查、校验 `update.json` 与 `module.prop` 版本一致、校验 `bin/coregated` 为 AArch64 ELF64 并写 0755。
-- 新增 `module/daemon/` Rust 只读观察器源码与 `module/FREEZE-UPSTREAM.txt`。Rust 观察器当前仅为源码，锁核、限频、冻结、温度决策与退出恢复仍全部由 Shell 负责。
+## 默认行为与兼容性
 
-### 版本与安装
+- 首次安装只锁最高频的一个大核，cpu0 不下线；限频、温度及其他可选策略默认关闭。
+- 重启/升级保留已保存设置。当前样例配置的日常轮询为 10 秒、游戏轮询为 30 秒；历史版本默认值不同，以当前配置为准。
+- 温度策略使用电池温度，默认阈值 40℃，可设 35～60℃。
+- 需要 Root；App 最低 Android 13。硬件驱动、系统限制及其他性能工具可能影响实际锁核和频率行为。
+- 限频恢复优先使用首次快照；快照可能记录其他工具已经限制的频率。本版不含逐档试写能力。
 
-- 版本号 `versionCode 235` / `versionName "2.3.5"`，高于 v2.3.1 的 231，可直接覆盖升级。
-- 覆盖安装需签名一致，否则需先卸载旧版。
-- 默认配置只锁最高频的一个大核，其余功能默认关闭；重启后保留用户当前设置，不回落默认。
-- 所有改动都在 sysfs 运行时生效，不写任何系统分区，重启即还原。
-- 完全恢复原始状态：删除 `/data/adb/modules/CoreGate/` 与 `/data/adb/CoreGate/` 后重启。
+## 安装与恢复
 
-## v2.3.1
+1. 从 Releases 下载模块 ZIP，在模块管理器安装并按提示重启。
+2. 下载带 debug 后缀的已签名 APK 安装。release-unsigned APK 需要自行签名，不能直接安装。
+3. 正常升级保留用户配置。模块不需要 App 常驻；App 提供配置、状态和操作入口。
+4. 出现异常：管理器禁用模块，或创建 `/data/adb/modules/CoreGate/disable` 后重启。
+5. 无法启动：Recovery 删除 `/data/adb/modules/CoreGate`；彻底重置时再删除 `/data/adb/CoreGate` 后重启。
 
-本次以 APK 界面与交互更新为主，同时发布包含冻结管理修复的模块 ZIP。请配套更新 APK 与模块。
+运行时修改 sysfs，不写系统分区。禁用/卸载并重启可撤销运行时修改。
 
-### APK 界面与交互
+## 本次修复
 
-- 开屏加入 CoreGate 粒子聚合与文字过渡，并在标题下淡入「让每一分电量，多一分陪伴」。
-- 调整首页与设置页的布局、头像动画及交互细节，沿用 Compose + Miuix 原生界面和悬浮底部导航。
-- 贡献者内容融入关于区域，头像墙支持拖动、缩放；名单更新至 10 位，补充头像、QQ 与贡献介绍。
-- 贡献者提供 QQ 会话入口与复制 QQ 号，修正浏览器选择逻辑，使用公开 IntentFilter API。
-- 优化更新检查反馈与状态标记。
-- 加入全局音乐播放入口、本地音乐导入及默认自动播放，整理播放交互与离线文案。
-- 内置歌单扩充至 6 首，新增《素颜》（许嵩 & 何曼婷）和《后会无期》（徐良 & 汪苏泷）；升级时一次性追加新歌，保留现有歌单与用户导入内容。
+- 修复限频配置解析与缓存，避免读取错误后静默回退默认值。
+- 修复游戏保持锁核目标名单切换、核心恢复顺序与操作失败反馈。
+- 检测范围切换改为可滑动悬浮胶囊。
+- 贡献者资料更正为 Dere3046（酷安 UID 37601237）。
+- 生命周期标记清理、崩溃自愈与 SAFE_MODE；限频实现沿用 v2.4.2 原版。
 
-### 模块 ZIP：冻结管理修复
+完整累计更新请见 [v2.6.4 Release](https://github.com/zimky180/CoreGate-App/releases/tag/v2.6.4) 与 [RELEASE-NOTES.md](RELEASE-NOTES.md)。
 
-- 更新冻结执行链路，使用应用停用 / 启用与实际状态校验；改进 ColorOS 环境下 PackageManager 命令执行。
-- 启动时等待 PackageManager 就绪，未就绪时保留策略等待重试。
-- 保存应用原始状态，恢复时保留用户原先停用的应用；改进分组与单项冻结覆盖关系。
-- 分组与单项操作增加结果检查和失败反馈，改进当前冻结状态查询与恢复流程。
-- 此次模块 ZIP 同步当前冻结修复源码，替换旧发布包中的冻结实现。
+## 源码结构
 
-### 版本与安装
+| 路径 | 内容 |
+| --- | --- |
+| `app/` | 原生 Android App，Compose / Miuix 界面、配置与 Root 桥接、完整资源 |
+| `module/` | 可独立运行的模块脚本、配置、库与预编译观察程序 |
+| `module/daemon/` | Rust 观察程序源码；迁移第一阶段 |
+| `module/tools/` | 模块校验与打包脚本 |
+| `.github/workflows/build.yml` | debug/release APK 构建及配套模块打包 |
+| `LICENSES/`、`THIRD_PARTY_NOTICES.md` | 第三方许可与声明 |
 
-- APK 与模块统一为 v2.3.1，versionCode 231；重启保留用户配置。
-- APK 是管理界面，策略仍由模块执行，关闭 APK 后模块继续运行。
-- 当前仍以一加 Ace 6T / 骁龙 8 Gen 5 为主要适配对象。
-- 自定义限频历史反馈仍待完整真机复验，本次未将其列为已修复问题。
-
-## 下载与源码
-
-- APK 下载：[本仓库 Releases](https://github.com/zimky180/CoreGate-App/releases)
-- 模块 ZIP 与开源仓库：[zimky180/CoreGate](https://github.com/zimky180/CoreGate)
-- 模块 ZIP 下载：[模块 Releases](https://github.com/zimky180/CoreGate/releases)
-
-Android 13（API 33）及以上，需要 root 与配套模块。当前 v2.3.5 仍以骁龙 8 Gen 5 / 一加 Ace 6T 为适配和验证重点，不宣称支持所有设备。
-
-## v2.3.0
-
-- **页面重构**：采用 Compose + Miuix 原生界面，重新整理锁核状态、策略、日常限频和设置页面，加入悬浮底部导航与实时核心状态展示。
-- **增加主题选择**：支持浅色、深色及跟随系统，提供强调色选择和动态配色，默认使用绿色强调色。
-- **增加温度锁核 / 解核**：支持「高温锁核」与「高温解封」两种模式，统一使用电池温度，阈值可在 35～60℃ 调整，默认 40℃。高温锁核可单独选择额外封锁的核心，降至阈值以下 3℃ 后撤销额外封锁、恢复日常名单；高温解封在达到阈值时恢复全部核心并解除 CoreGate 限频。
-- **增加冻结管理**：支持查看应用冻结状态、执行冻结与解冻，并显示应用名称和状态差异；操作时仅当前项目显示进行中状态。
-- **策略优先级完善**：识别到名单内游戏时优先恢复全部核心；已开启的录屏 / 相机恢复、充电恢复同样优先于高温额外锁核。策略由模块执行，关闭 App 后仍然生效。
-- **默认配置与升级迁移**：首次安装只锁最高频的一个大核，其余可选功能默认关闭；重启保留当前设置。升级时清理已删除功能的残留配置，并保留迁移备份。
-- **图标与体验修正**：应用图标更新为「八核休眠」，修正主题配色、温度阈值拖动和冻结列表刷新体验。
-- **构建与更新**：正式版开启 R8 混淆、代码优化与资源压缩，修正模块更新下载链接。
-
-## 公开构建与产物对应
-
-本仓库公开 APK 完整项目、依赖版本、R8 规则、GitHub Actions 工作流与同次构建使用的 `module/` 快照。发布页关联源码提交与 Actions 构建，BUILD_INFO.json 记录构建来源、文件摘要及签名证书指纹，SHA256SUMS.txt 用于校验下载文件。模块 ZIP 在模块仓库发布，两个仓库的模块文件保持逐字节一致。
-
-正式版启用 R8 混淆、代码优化和资源压缩，R8 mapping 可用于崩溃回溯。已发布 APK 的程序与资源条目与对应 CI 输出逐字节核对，APK v2 签名及内容摘要校验通过；不同环境重建不保证 APK 字节完全相同。模块数据与 APK 分开保存。
-
-本机执行 Kotlin 语法解析、Shell 语法及策略模拟检查，正式编译由公开 Actions 完成；新增温度策略仍需真机安装回归验证。
+仓库包含发布所用完整工程文件与资源，保留源码注释。凭据、私钥、机器专用 local.properties 及构建缓存不属于发布源码。
 
 ## 构建
 
-JDK 17、Gradle 9.3.1、Android SDK 37，执行 `gradle assembleDebug assembleRelease`。Actions 提供 APK、模块 ZIP、构建信息和 R8 mapping 工件。
+使用 JDK 17、Android SDK Platform 37 和 Gradle 9.3.1；依赖版本见 `gradle/libs.versions.toml`。若本机没有 Gradle Wrapper，请安装对应 Gradle。
 
-## 第三方说明
+```sh
+gradle --no-daemon assembleDebug assembleRelease
+cd module
+python3 tools/package_module.py --source . --output ../out
+```
 
-界面使用 Compose、Miuix 与 Material Kolor。液态效果文件保留 AndroidLiquidGlass / compose-miuix-ui 的上游来源注释；相应第三方代码遵循其各自许可证。自有代码使用 MIT 许可证；Duck-Detector 移植部分按 Apache-2.0 保留来源与许可。Telegram 移植代码已移除。详见 LICENSE、LICENSES 与 THIRD_PARTY_NOTICES.md。
+GitHub Actions 可在 Actions 页面手动运行；ci-build 分支推送也会触发。工程未配置发布私钥，assembleRelease 产物未签名。
+
+## 贡献者
+
+zimky、寒玉、热情、峩、冬安、沧海、解开超载的心、doze、Dere3046、晨阳、节甘天baby、巴闭Z、DeepSeek。完整展示与个人链接以 App 内贡献者页面为准。
+
+## 许可
+
+项目许可见 [LICENSE](LICENSE)，第三方组件与资源遵守各自声明，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [LICENSES](LICENSES)。
+
+更新日期：2026-11-13。

@@ -47,6 +47,10 @@ internal fun MusicDroplet(
 ) {
     val waterRipples = com.zimky.coregateUS.ui.theme.LocalAppSettings.current.waterRipples
     val cs = MiuixTheme.colorScheme
+    // Ripples follow the real accent seed, matching liquidSheen().
+    val rippleTint = com.zimky.coregateUS.ui.theme.LocalAppSettings.current.let {
+        if (it.keyColor != 0) Color(it.keyColor) else cs.primary
+    }
     val edge = cs.onSurface.copy(alpha = 0.10f)
     val surface = lerp(color, cs.primary, 0.035f)
     val flow = remember { Animatable(if (expanded) 1f else 0f) }
@@ -123,7 +127,7 @@ internal fun MusicDroplet(
                 drawContent()
                 if (waterRipples) drawCapillaryWaves(
                     Offset(size.width - 28.dp.toPx(), size.height - 24.dp.toPx()),
-                    wave.value, cs.primary, returning = !expanded
+                    wave.value, rippleTint, returning = !expanded
                 )
             },
         content = {
