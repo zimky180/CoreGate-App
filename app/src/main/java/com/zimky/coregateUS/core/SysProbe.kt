@@ -44,6 +44,8 @@ object SysProbe {
 
     /** 一整次探测的结果。 */
     data class Snapshot(
+        /** Unique sample identity: recomposition is not another GPU observation. */
+        val sampledAtNanos: Long = System.nanoTime(),
         var cores: List<Core> = emptyList(),
         var onlineCount: Int = 0,
         /** Hz */
@@ -67,6 +69,7 @@ object SysProbe {
         var temperatureRaw: String = "",
         var moduleVersion: String = "",
         var moduleVersionCode: Int? = null,
+        var scanRaw: String = "",
         var daemonAlive: Boolean = false,
         var daemonPid: Int = -1,
         /**
@@ -174,30 +177,14 @@ c.append("echo \"ROOTU:\"; id -u 2>/dev/null; ")
         // 后面连数字都没有，正则 (\d+) 也匹配不上，于是被判成「未运行」。
         // 修复思路：pid 文件只是「快速通道」，取不到就退化为 /proc 全量扫描——
         // 直接找 cmdline 里带 CoreGate/CoreGate.sh 的进程，这才是进程是否存活的唯一真相。
-        c.append("echo -n \"DAEMON:\"; ")
-        // Kotlin 字符串里裸 $ 会被当模板起始 → 编译期 Unresolved reference。
-        // 用 D 变量持有真正的 $ 字符，拼进 shell 源码里。
         val D = "\u0024"
-        c.append("PID=").append(D).append("(cat ").append(Paths.PID).append(" 2>/dev/null | tr -d ' \\n\\r\\t'); ")
-        c.append("if [ -n \"").append(D).append("PID\" ] && kill -0 \"").append(D).append("PID\" 2>/dev/null; then ")
-        c.append("echo -n \"ALIVE:").append(D).append("PID\"; else ")
-        // pid 文件缺失/失效 → 找真正的守护进程。
-        // 先 ps 筛（快，日志里的 27281 就是这么发现的），失败再遍历 /proc/cmdline 兜底。
-        // ⚠️ 绝不能写成 SPID=$($(...) ...)：$(( 会被 shell 当成算术展开，语法直接炸。
-        //    这里先落到 PS_OUT 变量，再单独 pipe 处理，彻底避开 $(( 歧义。
-        c.append("SPID=\"\"; ")
-        c.append("PS_OUT=\"").append(D).append("(ps -A -o PID,ARGS 2>/dev/null || ps -A 2>/dev/null)\"; ")
-        c.append("SPID=\"").append(D).append("(echo \"").append(D).append("PS_OUT\" | grep 'CoreGate/CoreGate.sh' ")
-            .append("| grep -v grep | head -n 1 | tr -s ' ' | cut -d' ' -f1)\"; ")
-        c.append("if [ -z \"").append(D).append("SPID\" ]; then for d in /proc/[0-9]*; do ")
-        c.append("cl=\"").append(D).append("(cat ").append(D).append("d/cmdline 2>/dev/null | tr '\\000' ' ')\"; ")
-        c.append("case \"").append(D).append("cl\" in *CoreGate/CoreGate.sh*) SPID=")
-            .append(D).append("{d#/proc/}; break;; esac; ")
-        c.append("done; fi; ")
-        c.append("if [ -n \"").append(D).append("SPID\" ] && kill -0 \"").append(D).append("SPID\" 2>/dev/null; then ")
-        c.append("echo -n \"ALIVE:").append(D).append("SPID\"; else echo -n \"DEAD:0\"; fi; fi; ")
-        // 上面用 echo -n 拼接成一行，最后补一个换行，避免和后面的 STATEF: 粘在一起
-        c.append("echo \"\"; ")
+        c.append(RootProcesses.daemonCheck).append("; ")
+        c.append("PID=").append(D).append("(cat ").append(Paths.PID).append(" 2>/dev/null); FOUND=; ")
+        c.append("if cg_daemon \"").append(D).append("PID\"; then FOUND=").append(D).append("PID; ")
+        c.append("else for d in /proc/[0-9]*; do p=").append(D).append("{d#/proc/}; ")
+        c.append("if cg_daemon \"").append(D).append("p\"; then FOUND=").append(D).append("p; break; fi; done; fi; ")
+        c.append("if [ -n \"").append(D).append("FOUND\" ]; then echo \"DAEMON:ALIVE:").append(D).append("FOUND\"; else echo DAEMON:DEAD:0; fi; ")
+        c.append("echo SCAN:; cat ").append(Paths.DIR).append("/scan.state 2>/dev/null; ")
         // 额外给一个冗余标记：把 pid 单独再输出一次，便于诊断区人类肉眼看
         c.append("echo \"DPID:\"; cat ").append(Paths.PID).append(" 2>/dev/null; ")
         c.append("echo \"STATEF:\"; cat ").append(Paths.STATE).append(" 2>/dev/null; ")
@@ -279,6 +266,7 @@ c.append("echo \"ROOTU:\"; id -u 2>/dev/null; ")
             // 让上层「索引 0 = 最低档」这个约定对三类频率都成立。
             s.gpuAvail = gpuList.sorted()
 
+            s.scanRaw = line(out, "SCAN").orEmpty().trim()
             val stateb = line(out, "DAEMON")
             // DEAD:0 里的 0 是占位符（不是真 pid），要还原成「未知 = -1」
             val aliveFromMark = stateb != null && stateb.startsWith("ALIVE:")

@@ -28,7 +28,7 @@ import com.zimky.coregateUS.ui.component.FloatingBottomBar
 import com.zimky.coregateUS.ui.component.FloatingBottomBarItem
 import top.yukonga.miuix.kmp.basic.Badge
 import com.zimky.coregateUS.ui.LiquidCard as Card
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
@@ -59,7 +59,7 @@ internal fun TemperaturePolicyCard(
         if (!focused) thresholdText = cfg.temperatureThreshold.toString()
     }
     fun persist(next: CoreConfig) {
-        if (!cfg.loaded) return
+        if (!cfg.loaded || !cfg.policyMasterEnabled) return
         pending += 1
         Toaster.show("场景策略已更新")
         save(next, null) { ok, msg ->
@@ -68,7 +68,7 @@ internal fun TemperaturePolicyCard(
         }
     }
     fun commitThreshold() {
-        if (!cfg.loaded) return
+        if (!cfg.loaded || !cfg.policyMasterEnabled) return
         val threshold = CoreConfig.clampTemperature(thresholdText.toIntOrNull() ?: 40)
         thresholdText = threshold.toString()
         if (threshold != cfg.temperatureThreshold) persist(cfg.copy(temperatureThreshold = threshold))
@@ -101,7 +101,7 @@ internal fun TemperaturePolicyCard(
     // 温度串第 9 段仍保留空位（恒为空串），以免破坏按 | 切分的旧逻辑。
     val surface by rememberUpdatedState(cs.surfaceContainer)
     val backdrop = rememberLayerBackdrop { drawRect(surface) }
-    val available = cfg.loaded
+    val available = cfg.loaded && cfg.policyMasterEnabled
 
     SectionHeading("场景策略", "游戏保持锁核与电池温度策略")
     Card(modifier = Modifier.fillMaxWidth()) {

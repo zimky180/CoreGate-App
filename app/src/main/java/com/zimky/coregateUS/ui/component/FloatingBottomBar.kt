@@ -29,6 +29,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -232,13 +233,15 @@ fun FloatingBottomBar(
     var totalWidthPx by remember { mutableFloatStateOf(0f) }
 
     val offsetAnimation = remember { Animatable(0f) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    var offsetReturnJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val rubberBandPx = with(density) { 4.dp.toPx() }
     val panelOffset by remember(rubberBandPx) {
         derivedStateOf {
             if (totalWidthPx == 0f) {
                 0f
             } else {
-                val fraction = (offsetAnimation.value / totalWidthPx).fastCoerceIn(-1f, 1f)
+                val fraction = (dragOffset / totalWidthPx).fastCoerceIn(-1f, 1f)
                 rubberBandPx * fraction.sign * EaseOut.transform(abs(fraction))
             }
         }
@@ -268,6 +271,7 @@ fun FloatingBottomBar(
                 offset.x in 0f..totalWidthPx
             },
             onDragStarted = { position ->
+                offsetReturnJob?.cancel()
                 updateValue(indexAt(position.x).toFloat())
             },
             onDragStopped = {
@@ -277,14 +281,22 @@ fun FloatingBottomBar(
                     onSelectedUpdated(targetIndex)
                 }
                 updateValue(targetIndex.toFloat())
-                animationScope.launch {
-                    offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+                offsetReturnJob?.cancel()
+                offsetReturnJob = animationScope.launch {
+                    offsetAnimation.snapTo(dragOffset)
+                    offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) {
+                        dragOffset = value
+                    }
                 }
             },
             onDragCancelled = {
                 updateValue(currentIndex.toFloat())
-                animationScope.launch {
-                    offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+                offsetReturnJob?.cancel()
+                offsetReturnJob = animationScope.launch {
+                    offsetAnimation.snapTo(dragOffset)
+                    offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) {
+                        dragOffset = value
+                    }
                 }
             },
             onDrag = { _, dragAmount ->
@@ -293,9 +305,7 @@ fun FloatingBottomBar(
                         (targetValue + dragAmount.x / tabWidthPx * if (isLtr) 1f else -1f)
                             .coerceIn(0f, (tabsCount - 1).toFloat()),
                     )
-                    animationScope.launch {
-                        offsetAnimation.snapTo(offsetAnimation.value + dragAmount.x)
-                    }
+                    dragOffset += dragAmount.x
                 }
             }
         )

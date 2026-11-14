@@ -78,7 +78,7 @@ import com.zimky.coregateUS.ui.SwitchRow
 import com.zimky.coregateUS.ui.Toaster
 import top.yukonga.miuix.kmp.basic.Badge
 import com.zimky.coregateUS.ui.LiquidCard as Card
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -129,7 +129,25 @@ fun FreqPage(
         gpu = FreqCap.judgeGpu(s, limitOn, targets)
         pwr = FreqCap.judgePwr(s, limitOn, targets)
     }
-    val items = listOf(little, big, gpu, pwr)
+    // A single transient driver value must not flash a failure during scrolling.
+    // Keep the measured value visible and confirm using a fresh serial probe.
+    var gpuOverSamples by remember(limitOn, targets.effGpu) { mutableIntStateOf(0) }
+    val refreshGpu by rememberUpdatedState(onRefresh)
+    LaunchedEffect(s?.sampledAtNanos, limitOn, targets.effGpu) {
+        if (gpu.state == FreqCap.STATE_OVER) {
+            gpuOverSamples = (gpuOverSamples + 1).coerceAtMost(2)
+            if (gpuOverSamples == 1) {
+                kotlinx.coroutines.delay(1500L)
+                refreshGpu()
+            }
+        } else {
+            gpuOverSamples = 0
+        }
+    }
+    val displayedGpu = if (gpu.state == FreqCap.STATE_OVER && gpuOverSamples < 2) {
+        gpu.copy(actual = "${gpu.actual} · 复核中", state = FreqCap.STATE_UNKNOWN)
+    } else gpu
+    val items = listOf(little, big, displayedGpu, pwr)
 
     Column(
         modifier = Modifier
@@ -629,7 +647,7 @@ private fun StepperRow(
                 modifier = Modifier.width(40.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = "$value", color = MiuixTheme.colorScheme.onSurface, fontSize = 15.sp)
+                Text(text = "${value}", color = MiuixTheme.colorScheme.onSurface, fontSize = 15.sp)
             }
             StepButton(plus = true, enabled = canPlus, onClick = onPlus)
         }

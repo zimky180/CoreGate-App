@@ -1,6 +1,6 @@
 # CoreGate · 核心门控
 
-**v2.6.4 / 264** · Android 原生 Root 管理 App 与配套锁核模块 · 作者 zimky
+**v2.7.1 / 271** · Android 原生 Root 管理 App 与配套锁核模块 · 作者 zimky
 
 日常锁核与限频，检测游戏自动恢复；支持冻结管理、电池温度策略、录屏/相机恢复和游戏保持锁核。
 
@@ -9,8 +9,8 @@
 - [App 正式发布与完整源码](https://github.com/zimky180/CoreGate-App)
 - [模块发布与完整源码](https://github.com/zimky180/CoreGate)
 - [APK 同步源码与构建仓库](https://github.com/zimky180/CoreGate-APK)
-- [下载 v2.6.4 App](https://github.com/zimky180/CoreGate-App/releases/tag/v2.6.4)
-- [下载 v2.6.4 模块](https://github.com/zimky180/CoreGate/releases/tag/v2.6.4)
+- [下载 v2.7.1 App](https://github.com/zimky180/CoreGate-App/releases/tag/v2.7.1)
+- [下载 v2.7.1 模块](https://github.com/zimky180/CoreGate/releases/tag/v2.7.1)
 
 App 的自动更新入口为 **CoreGate-App**；模块更新入口为 **CoreGate**。校验文件为各 Release 的 SHA256SUMS.txt。
 
@@ -32,15 +32,17 @@ App 的自动更新入口为 **CoreGate-App**；模块更新入口为 **CoreGate
 
 运行时修改 sysfs，不写系统分区。禁用/卸载并重启可撤销运行时修改。
 
-## 本次修复
+## 本次更新（相对 v2.6.4）
 
-- 修复限频配置解析与缓存，避免读取错误后静默回退默认值。
-- 修复游戏保持锁核目标名单切换、核心恢复顺序与操作失败反馈。
-- 检测范围切换改为可滑动悬浮胶囊。
-- 贡献者资料更正为 Dere3046（酷安 UID 37601237）。
-- 生命周期标记清理、崩溃自愈与 SAFE_MODE；限频实现沿用 v2.4.2 原版。
+- 新增本轮包名扫描、后台扫描详情与 Root 进程管理，完善应用名称、图标及危险操作确认。
+- 更新冻结分组图标与推荐冻结清单，操作动效限定在当前行。
+- 优化首页标题、头像吸附、文字上推动画与音乐进度条光波。
+- 优化主题渐变与实时外观胶囊，修复切换时矩形瞬间跳色；新增红色强调色与光晕过渡。
+- 策略总开关关闭时禁用下方交互；完善游戏恢复提示和包名查询动画。
+- CPU 按实际频率档位对齐；GPU 已达目标时跳过重复写入，并移除写入后的全盘 sync。
+- 补充多系统录屏、相机包名及贡献者信息，保留用户配置。
 
-完整累计更新请见 [v2.6.4 Release](https://github.com/zimky180/CoreGate-App/releases/tag/v2.6.4) 与 [RELEASE-NOTES.md](RELEASE-NOTES.md)。
+完整累计更新请见 [v2.7.1 Release](https://github.com/zimky180/CoreGate-App/releases/tag/v2.7.1) 与 [RELEASE-NOTES.md](RELEASE-NOTES.md)。
 
 ## 源码结构
 
@@ -75,4 +77,4 @@ zimky、寒玉、热情、峩、冬安、沧海、解开超载的心、doze、De
 
 项目许可见 [LICENSE](LICENSE)，第三方组件与资源遵守各自声明，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [LICENSES](LICENSES)。
 
-更新日期：2026-11-13。
+更新日期：2026-11-14。

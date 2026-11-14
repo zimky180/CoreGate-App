@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -295,7 +295,11 @@ fun KeyValueRow(name: String, value: String, gradientValue: Boolean = false) {
         Text(text = name, color = cs.onSurfaceVariantSummary, fontSize = 12.5.sp)
         Spacer(Modifier.width(12.dp))
         Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
-            if (gradientValue) AnimatedGradientText(value, color = if (listOf("未找到", "未运行", "不可用", "已死亡", "缺失", "失败", "未授权", "未就绪").any { value.contains(it) }) cs.error else cs.primary, fontSize = 12.5.sp)
+            if (gradientValue) {
+                val negative = listOf("未找到", "未运行", "不可用", "已死亡", "缺失", "失败", "未授权", "未就绪").any { value.contains(it) }
+                AnimatedGradientText(value, color = if (negative) cs.error else cs.primary, fontSize = 12.5.sp,
+                    gradientColors = if (negative) listOf(androidx.compose.ui.graphics.Color(0xFFD32F2F), androidx.compose.ui.graphics.Color(0xFFFF8A80), androidx.compose.ui.graphics.Color(0xFFEF5350), androidx.compose.ui.graphics.Color(0xFFD32F2F)) else null)
+            }
             else Text(text = value, color = cs.onSurface, fontSize = 12.5.sp)
         }
     }

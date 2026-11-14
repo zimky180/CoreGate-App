@@ -73,6 +73,8 @@ internal val contributorProfiles = listOf(
     AuthorProfile("ideas-jiegantian", "节甘天baby", "思路贡献 · 限频方案\n分享限频思路，为 CoreGate 的限频方案完善提供参考。",
         qq = "3565733924", coolapkUid = "30849235", avatarRes = R.drawable.contributor_jiegantian),
     AuthorProfile("tester-babiz", "巴闭Z", "问题反馈 · 版本显示一致性\n发现并反馈 APK 版本号与显示版本不一致问题，帮助完善版本信息展示。", qq = "1602286598", avatarRes = R.drawable.contributor_babiz),
+    AuthorProfile("tester-daxiaochui", "大小锤哥", "问题反馈 · 荣耀策略适配\n反馈荣耀（MagicOS）录屏、拍照时未恢复全部核心的问题，帮助定位策略适配缺漏，推动完善多厂商录屏与相机场景支持。",
+        coolapkUid = "39388574", avatarRes = R.drawable.contributor_daxiaochui),
     AuthorProfile("deepseek", "DeepSeek", "源码恢复 · 音乐播放器重构\n帮助恢复丢失的源码，并重构音乐播放器，为项目作出巨大贡献。", qq = "3783049620", avatarRes = R.drawable.contributor_deepseek)
 )
 

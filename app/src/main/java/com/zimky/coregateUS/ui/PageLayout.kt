@@ -11,7 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 一级页内容标题，沿用 Miuix 主题与文字组件。 */
@@ -53,9 +53,7 @@ fun SectionHeading(title: String, summary: String? = null) {
 fun SummaryMetric(label: String, value: String, modifier: Modifier = Modifier) {
     val cs = MiuixTheme.colorScheme
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Crossfade(targetState = value, animationSpec = tween(220), label = "summaryValue") { shown ->
-            Text(text = shown, color = cs.onSurface, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-        }
+        Text(text = value, color = cs.onSurface, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
         Text(text = label, color = cs.onSurfaceVariantSummary, fontSize = 12.sp, lineHeight = 18.sp)
     }
 }

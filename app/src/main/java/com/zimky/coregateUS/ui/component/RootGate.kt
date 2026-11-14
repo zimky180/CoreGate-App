@@ -30,7 +30,7 @@ import com.zimky.coregateUS.core.RootShell
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Button
 import com.zimky.coregateUS.ui.LiquidCard as Card
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**

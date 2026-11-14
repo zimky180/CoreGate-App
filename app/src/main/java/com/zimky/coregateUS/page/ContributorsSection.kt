@@ -83,7 +83,7 @@ fun ContributorsSection() {
                     // 流到界面上或者被拼进 URL。
                     val coolapk = profile.coolapkUid
                         ?.takeIf { it.isNotBlank() && !it.startsWith("PENDING_") }
-                    Text(if (qq == null) "QQ 号待补充" else "QQ：$qq",
+                    if (qq != null) Text("QQ：$qq",
                         modifier = Modifier.fillMaxWidth(), color = cs.onSurfaceVariantSummary, fontSize = 13.sp)
                     if (coolapk != null) {
                         Text("酷安 UID：$coolapk", modifier = Modifier.fillMaxWidth(),
@@ -92,7 +92,7 @@ fun ContributorsSection() {
                     // V2.4.1：按钮顺序固定为
                     // ①查看 QQ ②查看酷安 ③复制 QQ 号 ④复制酷安 UID ⑤关闭
                     // 不用 getOrNull() 之类做动态升降位，避免同一位置在不同人身上是不同功能。
-                    TextButton("查看 QQ", onClick = {
+                    if (qq != null) TextButton("查看 QQ", onClick = {
                         if (qq == null) {
                             Toaster.show("这位贡献者的 QQ 号尚未填写。")
                         } else {

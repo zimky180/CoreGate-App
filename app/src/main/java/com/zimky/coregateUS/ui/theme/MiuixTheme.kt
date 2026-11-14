@@ -46,7 +46,7 @@ fun MiuixKernelSUTheme(
         ThemeColorSpec.Spec2021
     }
 
-    val resolvedKeyColor: Color? = remember(appSettings.keyColor, appSettings.colorMode, darkTheme, context) { when {
+    val targetKeyColor: Color = remember(appSettings.keyColor, appSettings.colorMode, darkTheme, context) { when {
         appSettings.keyColor != 0 -> Color(appSettings.keyColor)
         appSettings.colorMode.isMonet ->
             if (darkTheme) dynamicDarkColorScheme(context).primary
@@ -56,6 +56,9 @@ fun MiuixKernelSUTheme(
         else -> Color(0xff43a047)
     } }
 
+    // Generate the destination palette once. The root snapshot crossfade blends
+    // the rendered themes, avoiding full palette generation on every frame.
+    val resolvedKeyColor = targetKeyColor
     val controller = remember(appSettings.colorMode, resolvedKeyColor, darkTheme, miuixPaletteStyle, miuixColorSpec) { ThemeController(
         when (appSettings.colorMode) {
             ColorMode.SYSTEM -> ColorSchemeMode.System

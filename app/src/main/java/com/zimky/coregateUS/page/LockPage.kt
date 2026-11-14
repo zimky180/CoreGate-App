@@ -62,7 +62,7 @@ import com.zimky.coregateUS.ui.Semantic
 import com.zimky.coregateUS.ui.Toaster
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import com.zimky.coregateUS.ui.LiquidCard as Card
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -97,7 +97,10 @@ fun LockPage(
     onRefresh: () -> Unit,
     save: (CoreConfig, String?, ((Boolean, String) -> Unit)?) -> Unit,
     frozenCount: Int? = null,
-    onOpenFreeze: (Rect) -> Unit = {}
+    onOpenFreeze: (Rect) -> Unit = {},
+    onOpenScan: (Rect) -> Unit = {},
+    onOpenProcesses: (Rect) -> Unit = {}
+
 ) {
     var freezeOrigin by remember { mutableStateOf(Rect.Zero) }
     val cs = MiuixTheme.colorScheme
@@ -146,7 +149,7 @@ fun LockPage(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
 
-        HomeProfileHeader(onAvatarPosition = { avatarAnchor.avatar = it })
+        HomeProfileHeader( onAvatarPosition = { avatarAnchor.avatar = it })
 
         val pairing = com.zimky.coregateUS.core.VersionPairing.evaluate(
             s?.svcState, s?.moduleVersion, s?.moduleVersionCode
@@ -205,6 +208,7 @@ fun LockPage(
                     !daemonAlive && bootWaitTotal > 0 -> "正在等待系统启动完成"
                     !daemonAlive -> "守护进程未启动"
                     total == 0 -> "等待核心信息"
+                    s?.gameActive == true -> "当前是游戏模式，所有核心已解放"
                     locked -> "${total - onlineCount} 个核心已离线"
                     else -> "全部核心在线"
                 }, color = cs.onSurface, fontSize = 26.sp, fontWeight = FontWeight.SemiBold,
@@ -373,8 +377,11 @@ fun LockPage(
                     modifier = Modifier.onGloballyPositioned { freezeOrigin = it.boundsInRoot() },
                     onClick = { onOpenFreeze(freezeOrigin) }
                 )
+                BackgroundTools(snapshot, onOpenScan, onOpenProcesses)
             }
         }
+
+        Gap(12.dp)
 
         // ── 卡片四：锁核建议 ─────────────────────────────────────────
         Card(modifier = Modifier.fillMaxWidth()) {

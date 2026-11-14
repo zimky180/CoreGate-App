@@ -11,11 +11,8 @@ import android.content.pm.PackageManager
  *   这玩意儿该不该冻。用户原话：「你别光写包名，把名字也写上，要不然
  *   用户无法正常分析要不要冻结」。
  *
- * 【为什么需要 <queries>】
- *   Android 11 起有包可见性限制：清单里没声明过的包，即使装在手机上，
- *   `getApplicationInfo` 也会抛 NameNotFoundException。所以清单里用
- *   `<queries>` 点名了冻结表里那 63 个包（不用 QUERY_ALL_PACKAGES，
- *   避免被判「枚举全部应用」）。见 AndroidManifest.xml。
+ * 扫描详情需要读取任意已安装应用，清单声明 QUERY_ALL_PACKAGES。
+ * <queries> 保留冻结表与浏览器的定向查询。
  *
  * 【为什么不每次实时查】
  *   一个组展开就是 52 行，每行都走一次 PackageManager 虽然是内存操作，

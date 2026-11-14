@@ -55,7 +55,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import com.zimky.coregateUS.ui.LiquidCard as Card
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -441,19 +441,15 @@ fun BoxScope.HomeMusicPlayer() {
         ) {
                 Column(Modifier.width(280.dp).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        AnimatedContent(targetState = track, modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)),
-                            transitionSpec = {
-                                (slideInHorizontally(tween(280)) { it * direction / 3 } + fadeIn(tween(220))) togetherWith
-                                    (slideOutHorizontally(tween(240)) { -it * direction / 3 } + fadeOut(tween(160)))
-                            }, label = "musicTrack") { item ->
-                            Column(Modifier.fillMaxWidth().clickable { returnToQueue = false; editingId = item?.id; edit = true }) {
-                                Text(item?.title?.ifBlank { "未命名歌曲" } ?: "随身听", color = cs.onSurface,
-                                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(item?.artist?.ifBlank { "未填写歌手" } ?: "添加喜欢的歌曲",
-                                    color = cs.onSurfaceVariantSummary, fontSize = 11.sp,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
+                        Column(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).clickable {
+                            returnToQueue = false; editingId = track?.id; edit = true
+                        }) {
+                            Text(track?.title?.ifBlank { "未命名歌曲" } ?: "随身听", color = cs.onSurface,
+                                fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(track?.artist?.ifBlank { "未填写歌手" } ?: "添加喜欢的歌曲",
+                                color = cs.onSurfaceVariantSummary, fontSize = 11.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         TextButton("收起", onClick = { expanded = false })
                     }
@@ -567,17 +563,12 @@ fun BoxScope.HomeMusicPlayer() {
                 // V2.4.2: actions moved to the right, lining up with the per-track 编辑 buttons.
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically) {
-                    // V2.4.7：按用户要求对调这两个按钮——原来的「添加网络歌曲」位置换成「关闭」，
-                    //   原来的「导入本地音乐」位置换成「添加本地音乐」。
-                    //   只换按钮本身，卡片容器 / 进出场动画 / 手势全部不动。
-                    TextButton("关闭", onClick = { showQueue = false })
-                    Spacer(Modifier.width(12.dp))
                     TextButton("添加本地音乐", onClick = {
-                        // localPicker 的回调是自包含的：选中文件后自己读取元数据、去重、入库、persist，
-                        // 不依赖 returnToQueue / editingId / edit 这些编辑态，所以这里只关歌单、拉选择器。
                         showQueue = false
                         localPicker.launch(arrayOf("audio/*"))
                     })
+                    Spacer(Modifier.width(12.dp))
+                    TextButton("关闭", onClick = { showQueue = false })
                 }
             }
                 }

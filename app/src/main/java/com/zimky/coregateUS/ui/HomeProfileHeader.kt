@@ -17,7 +17,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.util.Calendar
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable

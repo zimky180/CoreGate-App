@@ -1,5 +1,10 @@
 package com.zimky.coregateUS.page
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.animation.animateContentSize
@@ -30,13 +35,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.zimky.coregateUS.R
 import com.zimky.coregateUS.core.AppLabels
 import com.zimky.coregateUS.core.CoreConfig
 import com.zimky.coregateUS.core.FreezeData
@@ -49,7 +54,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import com.zimky.coregateUS.ui.LiquidCard as Card
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.animation.animateColorAsState
@@ -78,7 +83,7 @@ import androidx.compose.ui.input.pointer.pointerInput
  *   - 每个组可以整体开关（对应 config.json 的 freeze_<key>）
  *   - 组内每个包可以单独勾选冻结 / 解冻
  *   - 也可以「全选」一次冻结整组
- *   - 高风险组（作者自冻清单）开启前必须过二次确认弹窗
+ *   - 高风险组（推荐冻结清单）开启前必须过二次确认弹窗
  *
  * 状态真相：本页显示的「已冻结」标记全部来自 `--freeze-status` 的 [actual] 段，
  * 即系统当前真实状态，而不是「用户勾了就算」。所以用户能在这里亲眼看到
@@ -97,6 +102,8 @@ fun FreezePage(
     val cs = MiuixTheme.colorScheme
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
+    var groupFilter by remember { mutableStateOf(0) }
+    var groupQuery by remember { mutableStateOf("") }
     var labels by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var snap by remember { mutableStateOf(FreezeData.Snapshot()) }
     var loading by remember { mutableStateOf(true) }
@@ -200,51 +207,37 @@ fun FreezePage(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
-            .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = PAGE_BOTTOM_INSET),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // ── 顶部：返回 + 标题 ──────────────────────────────────────
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(
-                text = "‹ 返回",
-                cornerRadius = 100.dp,
-                onClick = onBack,
-                colors = ButtonDefaults.textButtonColors(
-                    textColor = cs.primary
-                )
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(text = "冻结管理", color = cs.onSurface, fontSize = 17.sp)
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(text = "仅限ColorOS系统", color = cs.onSurfaceVariantSummary, fontSize = 10.sp, maxLines = 1)
-        }
-
-        // ── 概览卡：一眼看出到底冻上了没 ─────────────────────────
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = "当前已冻结", color = cs.onSurface, fontSize = 15.sp)
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text = "${snap.scopedFrozenCount} 个",
-                        color = if (snap.actual.isEmpty()) cs.onSurfaceVariantSummary else cs.primary,
-                        fontSize = 15.sp
-                    )
+    val shownGroups = FreezeData.GROUPS.filter { group ->
+        val frozen = group.pkgs.any { it in snap.actual }
+        (groupFilter == 0 || (groupFilter == 1 && frozen) || (groupFilter == 2 && group.risky)) &&
+            (groupQuery.isBlank() || group.name.contains(groupQuery.trim(), true) ||
+                group.desc.contains(groupQuery.trim(), true) || group.pkgs.any { pkg ->
+                    pkg.contains(groupQuery.trim(), true) || labels[pkg].orEmpty().contains(groupQuery.trim(), true)
+                })
+    }
+    Column(Modifier.fillMaxSize().background(cs.surface).statusBarsPadding().navigationBarsPadding()) {
+        DetailHeader("冻结管理", "按组管理应用 · 仅限 ColorOS 系统", onBack, if (loading) "读取中…" else "刷新", { if (!reading) reload() })
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                Overview("当前已冻结", snap.scopedFrozenCount, "个应用",
+                    if (loading) "正在读取真实冻结状态…" else "${FreezeData.GROUPS.size} 个分组 · 系统另有 ${snap.systemDisabledCount} 个应用停用",
+                    "统计以系统实际状态为准，点击分组展开应用明细")
+            }
+            item { SearchField(groupQuery, { groupQuery = it }, "搜索分组、应用名称或包名") }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("全部分组", "有冻结项", "高风险").forEachIndexed { index, text ->
+                        FilterPill(text, groupFilter == index) { groupFilter = index }
+                    }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = if (loading) "正在读取真实冻结状态…"
-                    else if (snap.actual.isEmpty()) "系统当前没有任何被冻结的应用。"
-                    else "本模块冻结 ${snap.scopedFrozenCount} 个，系统另有 ${snap.systemDisabledCount} 个应用被停用（含你手动停用的），不计入上数。",
-                    color = cs.onSurfaceVariantSummary,
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.sp
-                )
+            }
+            item {
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("应用分组", color = cs.onSurface, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("${shownGroups.size} 个结果", color = cs.onSurfaceVariantSummary, fontSize = 12.sp)
+                }
+            }
+            item {
                 // 记录与本次系统读取结果不一致时显式告警；差异本身不能确定原因。
                 if (!loading && snap.staleList.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -265,17 +258,11 @@ fun FreezePage(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(10.dp))
-                TextButton(
-                    text = if (loading) "读取中…" else "重新读取",
-                    onClick = { reload() },
-                    colors = ButtonDefaults.textButtonColors(textColor = cs.primary)
-                )
             }
-        }
+            if (shownGroups.isEmpty()) item { EmptyResult("没有匹配的分组", "调整搜索词或筛选条件后再试") }
 
         // ── 各组卡片 ──────────────────────────────────────────────
-        FreezeData.GROUPS.forEach { g ->
+            items(shownGroups, key = { it.key }) { g ->
             FreezeGroupCard(
                 group = g,
                 snapshot = snap,
@@ -311,7 +298,7 @@ fun FreezePage(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        }
     }
 
     // ── 高风险二次确认弹窗 ────────────────────────────────────────
@@ -419,7 +406,7 @@ private fun FreezeGroupCard(
 ) {
     val cs = MiuixTheme.colorScheme
     val (frozenPkgs, normalPkgs) = FreezeData.splitByActual(group, actual)
-    // 本组与其它组重叠的包：作者自冻清单里有 5 个包同时出现在日志/影音/广告组，
+    // 本组与其它组重叠的包：推荐冻结清单里有 5 个包同时出现在日志/影音/广告组，
     // 引擎侧有「占用保护」——只要还有别的组开着，关掉本组也不会恢复这些重叠包。
     // 用户曾困惑「前面的包怎么这么少」，其实就是重叠部分在视觉上被别的组占了。
     // 这里把这些包明确标出来，用户一眼就知道它们确实在清单里，只是被共享着。
@@ -431,12 +418,15 @@ private fun FreezeGroupCard(
     var expanded by androidx.compose.runtime.saveable.rememberSaveable(group.key) { mutableStateOf(false) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.animateContentSize().padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Column(modifier = Modifier.animateContentSize().padding(18.dp)) {
             // 组标题行：名称 + 冻结计数 + 开关
             Row(verticalAlignment = Alignment.CenterVertically) {
+                LetterBadge(group.name.take(1), imageRes = when (group.name) {
+                        "推荐冻结清单" -> R.drawable.freeze_recommend "AI 附加功能" -> com.zimky.coregateUS.R.drawable.freeze_ai; "AI附加功能" -> com.zimky.coregateUS.R.drawable.freeze_ai; "语音助手" -> com.zimky.coregateUS.R.drawable.freeze_voice; "游戏空间" -> com.zimky.coregateUS.R.drawable.freeze_games; "主题与杂志" -> com.zimky.coregateUS.R.drawable.freeze_themes; "桌面搜索与负一屏" -> com.zimky.coregateUS.R.drawable.freeze_search; "云端备份同步" -> com.zimky.coregateUS.R.drawable.freeze_cloud; "系统行为诊断" -> com.zimky.coregateUS.R.drawable.freeze_diag; "广告推送聚合" -> com.zimky.coregateUS.R.drawable.freeze_ads; "运行日志收集" -> com.zimky.coregateUS.R.drawable.freeze_logs; "影音附加组件" -> com.zimky.coregateUS.R.drawable.freeze_media; else -> null })
+                Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = group.name, color = cs.onSurface, fontSize = 15.sp)
+                        Text(text = group.name, color = cs.onSurface, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         if (group.risky) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Box(

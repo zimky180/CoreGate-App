@@ -1,3 +1,7 @@
+/*
+ * GPL-2.0: contains adaptations from Telegram Android ProfileMetaballView.
+ * See THIRD_PARTY_NOTICES.md and assets/licenses/Telegram-GPL-2.0.txt.
+ */
 package com.zimky.coregateUS.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -17,6 +21,10 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.RenderNode
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import kotlin.math.hypot
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -42,7 +50,10 @@ class HomeAvatarAnchor {
     var avatar by mutableStateOf<LayoutCoordinates?>(null)
 }
 
-private data class AvatarFrame(val center: Offset, val radius: Float, val alpha: Float)
+private data class AvatarFrame(
+    val center: Offset, val radius: Float, val alpha: Float,
+    val target: Offset, val holeRadius: Float, val blend: Float, val blur: Float
+)
 
 @Composable
 fun BoxScope.HomeAvatarOverlay(scroll: ScrollState, anchor: HomeAvatarAnchor) {
@@ -55,6 +66,11 @@ fun BoxScope.HomeAvatarOverlay(scroll: ScrollState, anchor: HomeAvatarAnchor) {
     val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG) }
     val clip = remember { Path() }
     val destination = remember { RectF() }
+    val connector = remember { Path() }
+    val metaball = remember { TelegramMetaballPath() }
+    val connectorPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.BLACK } }
+    val blurNode = remember { RenderNode("profileMetaballBlurNode") }
+    var installedBlur = remember { -1f }
     var avatar by remember { mutableStateOf<ImageBitmap?>(null) }
     var saving by remember { mutableStateOf(false) }
     var selectionVersion by remember { mutableIntStateOf(0) }
@@ -104,9 +120,23 @@ fun BoxScope.HomeAvatarOverlay(scroll: ScrollState, anchor: HomeAvatarAnchor) {
             position.x + (target.x - position.x) * progress,
             startY + (target.y - startY) * progress
         )
-        // Move the complete circular image; fade only as it reaches the camera.
-        val alpha = (1f - ((progress - 0.7f) / 0.3f).coerceIn(0f, 1f))
-        return AvatarFrame(center, avatarRadius, alpha)
+        // CoreGate scroll/cutout adapter. Geometry below comes from Telegram's original Java.
+        val remaining = hypot(center.x - target.x, center.y - target.y)
+        val dp = density.density
+        val near = (1f - remaining / (64f * dp)).coerceIn(0f, 1f)
+        val radius = avatarRadius + (12f * dp - avatarRadius) * near
+        // ProfileMetaballView.onDraw: fraction and blurRadius, including its 18/32dp thresholds.
+        val fraction = ((radius - 18f * dp).coerceAtLeast(0f) / (14f * dp)).coerceIn(0f, 1f)
+        // Normalize against the existing 26dp avatar so entering the near zone stays continuous.
+        val initialFraction = ((avatarRadius - 18f * dp) / (14f * dp)).coerceAtLeast(0.001f)
+        val alpha = (fraction / initialFraction).coerceIn(0f, 1f)
+        val vy = center.y - target.y - radius
+        val c = (vy / (24f * dp)).coerceIn(-1f, 1f)
+        val blend = ((1f - c / 1.3f) / 2f).coerceIn(0f, 0.8f)
+        val holeRadius = ((cutout?.let { minOf(it.width(), it.height()).toFloat() } ?: (12f * dp)) / 2f)
+            .coerceAtLeast(3f * dp)
+        val blur = if (near > 0f) ((2f + (1f - fraction) * 20f) / 2f - 1f).coerceAtLeast(0.5f) * dp else 0f
+        return AvatarFrame(center, radius, alpha, target, holeRadius, blend, blur)
     }
 
     Canvas(Modifier.fillMaxSize()) {
@@ -115,22 +145,47 @@ fun BoxScope.HomeAvatarOverlay(scroll: ScrollState, anchor: HomeAvatarAnchor) {
             val canvas = composeCanvas.nativeCanvas
             if (f.alpha > 0f) {
                 val saveCount = canvas.save()
+                // Telegram's connector path, anchored to the physical display cutout.
+                val joined = metaball.build(connector, f.target.x, f.target.y, f.holeRadius,
+                    f.center.x, f.center.y, f.radius, f.blend)
+                connectorPaint.alpha = (f.alpha * 255).toInt()
+                if (joined) canvas.drawPath(connector, connectorPaint)
                 clip.reset()
                 clip.addCircle(f.center.x, f.center.y, f.radius, Path.Direction.CW)
                 canvas.clipPath(clip)
-                paint.alpha = (f.alpha * 255).toInt()
                 val image = bitmap
+                paint.alpha = 255
                 if (image == null) {
                     paint.color = background
                     paint.alpha = (f.alpha * 255).toInt()
                     canvas.drawCircle(f.center.x, f.center.y, f.radius, paint)
                 } else {
-                    val scale = (f.radius * 2 / image.width).coerceAtLeast(f.radius * 2 / image.height)
-                    val halfWidth = image.width * scale / 2
-                    val halfHeight = image.height * scale / 2
-                    destination.set(f.center.x - halfWidth, f.center.y - halfHeight,
-                        f.center.x + halfWidth, f.center.y + halfHeight)
-                    canvas.drawBitmap(image, null, destination, paint)
+                    val diameter = f.radius * 2f
+                    val scale = maxOf(diameter / image.width, diameter / image.height)
+                    val halfWidth = image.width * scale / 2f
+                    val halfHeight = image.height * scale / 2f
+                    val hardwareBlur = f.blur > 0f && canvas.isHardwareAccelerated
+                    if (hardwareBlur) {
+                        val side = kotlin.math.ceil(diameter).toInt().coerceAtLeast(1)
+                        blurNode.setPosition(0, 0, side, side)
+                        if (installedBlur != f.blur) {
+                            blurNode.setRenderEffect(RenderEffect.createBlurEffect(f.blur, f.blur, Shader.TileMode.CLAMP))
+                            installedBlur = f.blur
+                        }
+                        val recording = blurNode.beginRecording()
+                        destination.set(f.radius - halfWidth, f.radius - halfHeight,
+                            f.radius + halfWidth, f.radius + halfHeight)
+                        recording.drawBitmap(image, null, destination, paint)
+                        blurNode.endRecording()
+                        blurNode.alpha = f.alpha
+                        canvas.translate(f.center.x - f.radius, f.center.y - f.radius)
+                        canvas.drawRenderNode(blurNode)
+                    } else {
+                        paint.alpha = (f.alpha * 255).toInt()
+                        destination.set(f.center.x - halfWidth, f.center.y - halfHeight,
+                            f.center.x + halfWidth, f.center.y + halfHeight)
+                        canvas.drawBitmap(image, null, destination, paint)
+                    }
                 }
                 canvas.restoreToCount(saveCount)
             }

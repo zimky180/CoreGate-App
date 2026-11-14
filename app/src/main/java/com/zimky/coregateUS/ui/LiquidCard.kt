@@ -43,8 +43,8 @@ internal fun Modifier.liquidSheen(): Modifier = composed {
     val cs = MiuixTheme.colorScheme
     // Use the actual accent seed rather than a muted tonal primary. Keep the
     // light visible against both light and dark cards for every accent.
-    val tint = if (appearance.keyColor != 0) Color(appearance.keyColor) else cs.primary
-    val accentBoost = if (appearance.keyColor == 0xff43a047.toInt() || appearance.keyColor == 0xff8e65d3.toInt()) 1.16f else 1f
+    val tint = androidx.compose.animation.animateColorAsState(targetValue = if (appearance.keyColor != 0) Color(appearance.keyColor) else cs.primary, animationSpec = androidx.compose.animation.core.tween(360), label = "liquidTint").value
+    val accentBoost = if (appearance.keyColor == 0xffe5484d.toInt() || appearance.keyColor == 0xff43a047.toInt() || appearance.keyColor == 0xff8e65d3.toInt()) 1.16f else 1f
     val glowAlpha = (if (cs.surfaceContainer.luminance() < 0.35f) 0.24f else 0.19f) * accentBoost
     val gravity = rememberLiquidGravity()
     val position = remember { floatArrayOf(0.5f, 0.08f) }
@@ -93,7 +93,7 @@ internal fun Modifier.capillaryTouch(): Modifier = composed {
     // drifting to a muted tonal primary.
     val appearance = com.zimky.coregateUS.ui.theme.LocalAppSettings.current
     val cs0 = MiuixTheme.colorScheme
-    val tint = if (appearance.keyColor != 0) Color(appearance.keyColor) else cs0.primary
+    val tint = androidx.compose.animation.animateColorAsState(targetValue = if (appearance.keyColor != 0) Color(appearance.keyColor) else cs0.primary, animationSpec = androidx.compose.animation.core.tween(360), label = "liquidTint").value
     val waves = remember { mutableStateListOf<TouchWave>() }
     val scope = rememberCoroutineScope()
     clipToBounds().pointerInput(Unit) {

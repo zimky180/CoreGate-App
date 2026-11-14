@@ -36,8 +36,9 @@ fun AnimatedGradientText(
     )
     val highlight = lerp(color, MiuixTheme.colorScheme.onSurface, 0.65f)
     val secondary = MiuixTheme.colorScheme.primary
+    RisingContent(text, modifier) { shown ->
     Text(
-        text = text, modifier = modifier
+        text = shown, modifier = Modifier
             .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .drawWithContent {
                 drawContent()
@@ -50,4 +51,5 @@ fun AnimatedGradientText(
             },
         color = color, fontSize = fontSize, fontWeight = fontWeight
     )
+}
 }

@@ -87,7 +87,7 @@ object FreezeData {
         ),
         Group(
             key = "self",
-            name = "作者自冻清单",
+            name = "推荐冻结清单",
             pkgs = listOf(
                 "com.heytap.colorfulengine", "com.heytap.openid", "com.heytap.pictorial",
                 "com.heytap.speechassist", "com.heytap.tas", "com.microsoft.appmanager",

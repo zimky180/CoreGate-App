@@ -47,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
@@ -73,7 +74,7 @@ import com.zimky.coregateUS.ui.SwitchRow
 import com.zimky.coregateUS.ui.Toaster
 import top.yukonga.miuix.kmp.basic.Badge
 import com.zimky.coregateUS.ui.LiquidCard as Card
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -98,6 +99,7 @@ fun PolicyPage(
     frozenCount: Int?,
     onOpenFreeze: (Rect) -> Unit
 ) {
+    val interactive = cfg.loaded && cfg.policyMasterEnabled
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     var freezeOrigin by remember { mutableStateOf(Rect.Zero) }
@@ -124,7 +126,7 @@ fun PolicyPage(
     var inputFocused by remember { mutableStateOf(false) }
     var intervalSaving by remember { mutableStateOf(false) }
     fun saveInterval() {
-        if (intervalSaving) return
+        if (!cfg.loaded || intervalSaving) return
         commitInterval(intervalText, cfg) { text, next ->
             intervalText = text
             if (next != null) {
@@ -143,7 +145,7 @@ fun PolicyPage(
     var gameInputFocused by remember { mutableStateOf(false) }
     var gameIntervalSaving by remember { mutableStateOf(false) }
     fun saveGameInterval() {
-        if (gameIntervalSaving) return
+        if (!cfg.loaded || gameIntervalSaving) return
         commitGameInterval(gameIntervalText, cfg) { text, next ->
             gameIntervalText = text
             if (next != null) {
@@ -213,7 +215,7 @@ fun PolicyPage(
                         )
                     }
                 )
-                if (!cfg.policyMasterEnabled) {
+                if (!interactive) {
                     Gap(10.dp)
                     HintText(
                         "关闭期间 sh 进程不再读取温度、充电状态与前台应用，功耗最低。重新打开后恢复关闭前的全部策略配置。",
@@ -223,6 +225,7 @@ fun PolicyPage(
             }
         }
 
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // ── 卡片四：当前场景判断 ─────────────────────────────────────
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
@@ -263,8 +266,8 @@ fun PolicyPage(
             }
         }
 
-        // V2.4.7 需求2：主开关关闭时，整段策略区置灰且不可点击
-        Box(modifier = Modifier.fillMaxWidth()) {
+        // Only recovery and scene policies follow the master switch.
+        Box(modifier = Modifier.fillMaxWidth().alpha(if (interactive) 1f else 0.42f)) {
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SectionHeading("自动恢复", "满足已开启的条件时恢复全部核心")
 
@@ -277,7 +280,7 @@ fun PolicyPage(
                             trailing = {
                                 Switch(
                                     checked = cfg.policyMasterEnabled && cfg.captureBoost,
-                                    enabled = cfg.loaded && cfg.policyMasterEnabled,
+                                    enabled = interactive,
                                     onCheckedChange = { on ->
                                         save(cfg.copy(captureBoost = on), null) { ok, _ ->
                                             if (ok) Toaster.show(if (on) "已开启录屏/相机自动恢复" else "已关闭录屏/相机自动恢复")
@@ -298,7 +301,7 @@ fun PolicyPage(
                             trailing = {
                                 Switch(
                                     checked = cfg.policyMasterEnabled && cfg.noLockCharging,
-                                    enabled = cfg.loaded && cfg.policyMasterEnabled,
+                                    enabled = interactive,
                                     onCheckedChange = { on ->
                                         save(cfg.copy(noLockCharging = on), null) { ok, _ ->
                                             if (ok) Toaster.show(if (on) "已开启充电不锁核" else "已关闭充电不锁核")
@@ -317,12 +320,16 @@ fun PolicyPage(
                 TemperaturePolicyCard(cfg, snapshot, save)
 
             }
-            if (!cfg.policyMasterEnabled) {
-                // 遮罩拦截触摸，避免误改已失效的策略
+            if (!interactive) {
+                // Hit-test the overlay, leaving events unconsumed for parent scrolling.
                 Box(
                     modifier = Modifier
                         .matchParentSize()
-                        .background(cs.surface.copy(alpha = 0.55f))
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) awaitPointerEvent()
+                            }
+                        }
                 )
             }
         }
@@ -372,6 +379,7 @@ fun PolicyPage(
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(
+                                enabled = cfg.loaded,
                                 value = intervalText,
                                 onValueChange = { v ->
                                     // 只接受数字，最多 3 位，避免用户输入出奇怪内容
@@ -425,6 +433,7 @@ fun PolicyPage(
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(
+                                enabled = cfg.loaded,
                                 value = gameIntervalText,
                                 onValueChange = { v ->
                                     // 只接受数字，最多 3 位，避免用户输入出奇怪内容
@@ -476,7 +485,7 @@ fun PolicyPage(
                             title = "冻结管理",
                             summary = freezeSummary,
                             modifier = Modifier.onGloballyPositioned { freezeOrigin = it.boundsInRoot() },
-                            onClick = { onOpenFreeze(freezeOrigin) }
+                            onClick = { if (cfg.loaded) onOpenFreeze(freezeOrigin) }
                         )
 
 
@@ -489,6 +498,7 @@ fun PolicyPage(
 
 
 
+        }
         BottomSpacer()
     }
 }

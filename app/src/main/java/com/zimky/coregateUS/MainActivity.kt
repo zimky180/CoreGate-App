@@ -1,5 +1,6 @@
 package com.zimky.coregateUS
 
+import androidx.compose.ui.graphics.drawscope.clipPath
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -73,6 +74,8 @@ import com.zimky.coregateUS.core.RootShell
 import com.zimky.coregateUS.core.SysProbe
 import com.zimky.coregateUS.page.FreqPage
 import com.zimky.coregateUS.page.FreezePage
+import com.zimky.coregateUS.page.ScanDetailsPage
+import com.zimky.coregateUS.page.ProcessManagerPage
 import com.zimky.coregateUS.page.LockPage
 import com.zimky.coregateUS.page.PolicyPage
 import com.zimky.coregateUS.page.SettingsPage
@@ -87,7 +90,7 @@ import com.zimky.coregateUS.ui.theme.MiuixKernelSUTheme
 import kotlinx.coroutines.delay
 import com.zimky.coregateUS.ui.LiquidCard as Card
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.blur.drawBackdrop
 import top.yukonga.miuix.kmp.blur.blur
 import androidx.compose.foundation.layout.statusBars
@@ -169,17 +172,16 @@ class MainActivity : ComponentActivity() {
             var introVisible by rememberSaveable { mutableStateOf(savedInstanceState == null && !initialAppearance.skipStartupIntro) }
             var introMotionComplete by remember { mutableStateOf(savedInstanceState != null || initialAppearance.skipStartupIntro) }
             var appearance by remember { mutableStateOf(initialAppearance) }
+            val liveThemeRegions = remember { androidx.compose.runtime.mutableStateMapOf<Any, androidx.compose.ui.geometry.Rect>() }
             val themeLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
-            var oldThemeLayer by remember { mutableStateOf<androidx.compose.ui.graphics.layer.GraphicsLayer?>(null) }
+            var oldThemeSnapshot by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
             var themeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
             val themeScope = rememberCoroutineScope()
             
-            var fadingTheme by remember { mutableStateOf(false) }
-            val themeOverlayAlpha by animateFloatAsState(
-                if (fadingTheme) 0f else 1f, tween(300), label = "themeTransition"
-            )
+            val themeOverlayAlpha = remember { androidx.compose.animation.core.Animatable(0f) }
             Box(Modifier.fillMaxSize()) {
             CompositionLocalProvider(
+                com.zimky.coregateUS.ui.theme.LocalThemeLiveRegions provides liveThemeRegions,
                 LocalAppSettings provides appearance,
                 LocalSetAppSettings provides updateAppearance@{ next ->
                     if (next != appearance) {
@@ -192,23 +194,28 @@ class MainActivity : ComponentActivity() {
                             return@updateAppearance
                         }
                         themeJob?.cancel()
-                        // Freeze the last recorded frame during the color transition.
-                        oldThemeLayer = themeLayer
-                        fadingTheme = false
-                        appearance = next
-                        next.save(this@MainActivity)
                         themeJob = themeScope.launch {
-                            delay(32)
-                            fadingTheme = true
-                            delay(320)
-                            oldThemeLayer = null
+                            // Independent pixels: live child layers cannot serve as a frozen frame.
+                            val snapshot = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                                themeLayer.toImageBitmap()
+                            }
+                            try {
+                                themeOverlayAlpha.snapTo(1f)
+                                oldThemeSnapshot = snapshot
+                                appearance = next
+                                next.save(this@MainActivity)
+                                androidx.compose.runtime.withFrameNanos { }
+                                themeOverlayAlpha.animateTo(0f, tween(420))
+                            } finally {
+                                oldThemeSnapshot = null
+                            }
                         }
                     }
                 }
             ) {
             Box(Modifier.fillMaxSize().drawWithContent {
-                if (oldThemeLayer == null) themeLayer.record { this@drawWithContent.drawContent() }
-                if (oldThemeLayer == null) drawLayer(themeLayer) else drawContent()
+                themeLayer.record { this@drawWithContent.drawContent() }
+                drawLayer(themeLayer)
             }) {
             MiuixKernelSUTheme(appSettings = appearance, startupActive = introVisible) {
                 // 开屏 root 门槛：拿不到 root 就根本进不来（拦截式，不是提醒式）。
@@ -243,9 +250,23 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize().zIndex(99f)
                 )
             }
-            oldThemeLayer?.let { layer ->
-                Box(Modifier.fillMaxSize().graphicsLayer { alpha = themeOverlayAlpha }
-                    .drawWithContent { drawLayer(layer) })
+            oldThemeSnapshot?.let { snapshot ->
+                Box(Modifier.fillMaxSize().graphicsLayer { alpha = themeOverlayAlpha.value }
+                    .drawWithContent {
+                        val livePath = androidx.compose.ui.graphics.Path().apply {
+                            // Match the live controls' CircleShape: rectangular holes expose
+                            // the new page background at all four corners during the fade.
+                            liveThemeRegions.values.forEach { bounds ->
+                                val radius = minOf(bounds.width, bounds.height) / 2f
+                                addRoundRect(androidx.compose.ui.geometry.RoundRect(
+                                    bounds, androidx.compose.ui.geometry.CornerRadius(radius, radius)
+                                ))
+                            }
+                        }
+                        clipPath(livePath, androidx.compose.ui.graphics.ClipOp.Difference) {
+                            drawImage(snapshot)
+                        }
+                    })
             }
             if (introVisible) {
                 StartupIntro(
@@ -287,6 +308,8 @@ private const val DEBUG_ARM_MS = 5_000L
 private object SubPage {
     const val NONE = ""
     const val FREEZE = "freeze"
+    const val SCAN = "scan"
+    const val PROCESSES = "processes"
 }
 
 /** 底栏四栏文案。 */
@@ -385,6 +408,11 @@ private fun AppRoot() {
 
     // 当前展开的二级页；SubPage.NONE 表示停在四栏主界面
     var subPage by rememberSaveable { mutableStateOf(SubPage.NONE) }
+    var retainedSubPage by rememberSaveable { mutableStateOf(SubPage.FREEZE) }
+    LaunchedEffect(subPage) {
+        if (subPage != SubPage.NONE) retainedSubPage = subPage
+    }
+    val detailPage = if (subPage != SubPage.NONE) subPage else retainedSubPage
     var subPageOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
 
     // 策略页要显示的「冻结了多少个」，由二级页与后台探测回报。
@@ -643,7 +671,9 @@ private fun AppRoot() {
                         onRefresh = { refresh(true) },
                         save = ::save,
                         frozenCount = frozenCount,
-                        onOpenFreeze = { origin -> subPageOrigin = origin; subPage = SubPage.FREEZE }
+                        onOpenFreeze = { origin -> subPageOrigin = origin; subPage = SubPage.FREEZE },
+                        onOpenScan = { origin -> subPageOrigin = origin; subPage = SubPage.SCAN },
+                        onOpenProcesses = { origin -> subPageOrigin = origin; subPage = SubPage.PROCESSES }
                     )
                 }
                 PageSlot(index = 1, position = pagerPosition) {
@@ -699,16 +729,25 @@ private fun AppRoot() {
                                 indication = null
                             ) {}
                     ) {
-                        FreezePage(
+                        when (detailPage) {
+                            SubPage.SCAN -> ScanDetailsPage(
+                                snapshot = snapshot,
+                                packagesRaw = packagesRaw,
+                                onBack = { closeSubPage() },
+                                onRefresh = { refresh(true) }
+                            )
+                            SubPage.PROCESSES -> ProcessManagerPage(
+                                sh = RootShell,
+                                onBack = { closeSubPage() },
+                                onChanged = { refresh(true) }
+                            )
+                            else -> FreezePage(
                                 cfg = cfg,
                                 sh = RootShell,
                                 onBack = { closeSubPage() },
-                                onChanged = {
-                                    // 冻结页每次增删都要把数字同步回策略页，
-                                    // 否则用户返回后摘要还停在进来之前的旧值
-                                    loadConfig()
-                                }
+                                onChanged = { loadConfig() }
                             )
+                        }
                     }
                 }
             }

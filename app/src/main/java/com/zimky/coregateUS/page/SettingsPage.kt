@@ -1,5 +1,16 @@
 package com.zimky.coregateUS.page
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import com.zimky.coregateUS.ui.theme.LocalThemeLiveRegions
+
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -78,7 +89,7 @@ import com.zimky.coregateUS.ui.Toaster
 import top.yukonga.miuix.kmp.basic.Badge
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import com.zimky.coregateUS.ui.LiquidCard as Card
-import top.yukonga.miuix.kmp.basic.Text
+import com.zimky.coregateUS.ui.RollingText as Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -255,7 +266,7 @@ fun SettingsPage(
                     setAppearance(appearance.copy(colorMode = modes[index].second))
                 }
                 Text("强调色", color = cs.onSurface, fontSize = 14.sp)
-                val accents = listOf("默认" to 0, "蓝色" to 0xff4f8cff.toInt(),
+                val accents = listOf("默认" to 0, "红色" to 0xffe5484d.toInt(),
                     "绿色" to 0xff43a047.toInt(), "紫色" to 0xff8e65d3.toInt())
                 AppearancePills(accents.map { it.first },
                     accents.indexOfFirst { it.second == appearance.keyColor }.coerceAtLeast(0)) { index ->
@@ -359,39 +370,63 @@ fun SettingsPage(
                     colors = fieldColors()
                 )
                 val q = query.trim()
-                if (q.isNotEmpty()) {
-                    Gap(12.dp)
-                    val allLines = listText.lines().map { it.trim() }.filter { it.isNotEmpty() }
-                    val exactIdx = allLines.indexOfFirst { it.equals(q, ignoreCase = true) }
-                    val fuzzy = allLines.filter { it.contains(q, ignoreCase = true) }
-                    when {
-                        exactIdx >= 0 -> {
-                            StateBadge("已在名单", Semantic.OK)
-                            Gap(6.dp)
-                            MonoText("第 ${exactIdx + 1} 行：${allLines[exactIdx]}")
-                        }
-                        fuzzy.isNotEmpty() -> {
-                            StateBadge("部分匹配", Semantic.WARN)
-                            Gap(6.dp)
-                            fuzzy.take(5).forEach { MonoText(it) }
-                            if (fuzzy.size > 5) {
-                                Gap(4.dp)
-                                SubText("另有 ${fuzzy.size - 5} 条未展开")
+                val allLines = remember(listText) { listText.lines().map { it.trim() }.filter { it.isNotEmpty() } }
+                val exactIdx = allLines.indexOfFirst { it.equals(q, ignoreCase = true) }
+                val fuzzy = allLines.filter { it.contains(q, ignoreCase = true) }
+                val resultKind = when {
+                    q.isEmpty() -> 0
+                    exactIdx >= 0 -> 1
+                    fuzzy.isNotEmpty() -> 2
+                    else -> 3
+                }
+                AnimatedVisibility(
+                    visible = resultKind != 0,
+                    enter = expandVertically(tween(260)) + fadeIn(tween(220)),
+                    exit = shrinkVertically(tween(220)) + fadeOut(tween(160))
+                ) {
+                    AnimatedContent(
+                        targetState = Triple(resultKind, q, listText),
+                        contentKey = { it.first },
+                        transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(150)) },
+                        label = "packageQueryResult"
+                    ) { (kind, packageQuery, source) ->
+                        val lines = remember(source) { source.lines().map { it.trim() }.filter { it.isNotEmpty() } }
+                        Column {
+                            Gap(12.dp)
+                            when (kind) {
+                                1 -> {
+                                    val index = lines.indexOfFirst { it.equals(packageQuery, ignoreCase = true) }
+                                    StateBadge("已在名单", Semantic.OK)
+                                    Gap(6.dp)
+                                    if (index >= 0) MonoText("第 ${index + 1} 行：${lines[index]}")
+                                }
+                                2 -> {
+                                    val matches = lines.filter { it.contains(packageQuery, ignoreCase = true) }
+                                    StateBadge("部分匹配", Semantic.WARN)
+                                    Gap(6.dp)
+                                    matches.take(5).forEach { MonoText(it) }
+                                    if (matches.size > 5) {
+                                        Gap(4.dp)
+                                        SubText("另有 ${matches.size - 5} 条未展开")
+                                    }
+                                }
+                                3 -> {
+                                    StateBadge("未进名单", Semantic.ERR)
+                                    Gap(8.dp)
+                                    TextButton(
+                                        text = "把「$packageQuery」加入名单",
+                                        onClick = {
+                                            if (packageQuery == query.trim()) {
+                                                listText = appendPackage(listText, packageQuery)
+                                                listDirty = true
+                                                packagesExpanded = true
+                                                Toaster.show("已加到名单末尾，记得点「保存名单」")
+                                            }
+                                        },
+                                        colors = ButtonDefaults.textButtonColorsPrimary()
+                                    )
+                                }
                             }
-                        }
-                        else -> {
-                            StateBadge("未进名单", Semantic.ERR)
-                            Gap(8.dp)
-                            TextButton(
-                                text = "把「$q」加入名单",
-                                onClick = {
-                                    listText = appendPackage(listText, q)
-                                    listDirty = true
-                                    packagesExpanded = true
-                                    Toaster.show("已加到名单末尾，记得点「保存名单」")
-                                },
-                                colors = ButtonDefaults.textButtonColorsPrimary()
-                            )
                         }
                     }
                 }
@@ -625,6 +660,7 @@ fun SettingsPage(
 
                         // ② 守护进程
                         KeyValueRow("CoreGate.sh", if (daemonAlive) "存活" else "已死亡", gradientValue = true)
+                        HintText("CoreGate.sh 在进程管理页受保护；如需停止，请使用本页的停止按钮。停止后需重启恢复。")
                         KeyValueRow("PID", if ((s?.daemonPid ?: -1) > 0) s!!.daemonPid.toString() else "—", gradientValue = true)
 
                         Gap(8.dp)
@@ -825,8 +861,14 @@ private fun switchColors() = SwitchDefaults.colors(
 private fun AppearancePills(labels: List<String>, selected: Int, onSelected: (Int) -> Unit) {
     val surface by rememberUpdatedState(MiuixTheme.colorScheme.surfaceContainer)
     val backdrop = rememberLayerBackdrop { drawRect(surface) }
-    Box(Modifier.fillMaxWidth()) {
-        
+    val liveRegions = LocalThemeLiveRegions.current
+    val regionKey = remember { Any() }
+    DisposableEffect(liveRegions, regionKey) {
+        onDispose { liveRegions?.remove(regionKey) }
+    }
+    Box(Modifier.fillMaxWidth().onGloballyPositioned { coordinates ->
+        liveRegions?.set(regionKey, coordinates.boundsInRoot())
+    }) {
         FloatingBottomBar(
             modifier = Modifier.fillMaxWidth(), selectedIndex = selected,
             onSelected = onSelected, backdrop = backdrop, tabsCount = labels.size, compact = true

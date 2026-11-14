@@ -1,27 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  CoreGate 原生壳。
-
-  权限说明：
-    - 只申请 INTERNET 之外的权限吗？不。这里一个危险权限都不要。
-    - root 通过 su 命令拿，不需要在清单里声明任何权限；
-      KernelSU / Magisk 是在 su 进程里授权，跟 APK 清单无关。
-    - QUERY_ALL_PACKAGES 也不需要：包名列表是纯文本，不做应用枚举。
-
-  但冻结管理页必须显示应用名（用户要求：「你别光写包名，把名字也写上，
-  要不然用户无法正常分析要不要冻结」），所以需要能查到具体包的 label。
-
-  这里用最窄的做法：不申请 QUERY_ALL_PACKAGES（那属于「枚举全部应用」，
-  会被应用商店判为敏感），而是在 <queries> 里只点名冻结表里那 60 来个包。
-  Android 11+ 的包可见性规则会因此只对这批包放行，getApplicationLabel
-  就能取到中文名，权限面上依然克制。
-  -->
+<!-- Root 工具：读取已扫描应用的名称和图标，需要任意已安装应用的包可见性。 -->
 <!-- AGP 9 起 manifest 的 package 属性已废弃并被忽略，包名统一由 build.gradle 的 namespace 决定。 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
-    <!-- 只对冻结表内的包申请可见性，用于读取应用名与图标。 -->
+    <!-- 保留指定包与浏览器查询；扫描详情支持任意已安装应用。 -->
     <queries>
         <!-- Browser discovery for contributor web links. -->
         <intent>
